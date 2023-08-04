@@ -19,8 +19,8 @@ local skipNextRoomClear = false
 local skipNextLevelClear = false
 local inRunButNotLoaded = true
 
-SaveManager.Utility.ERROR_MESSAGE_FORMAT = "[IsaacSaveManager:%s] ERROR: %s\n"
-SaveManager.Utility.WARNING_MESSAGE_FORMAT = "[IsaacSaveManager:%s] WARNING: %s\n"
+SaveManager.Utility.ERROR_MESSAGE_FORMAT = "[IsaacSaveManager:%s] ERROR: %s (%s)\n"
+SaveManager.Utility.WARNING_MESSAGE_FORMAT = "[IsaacSaveManager:%s] WARNING: %s (%s)\n"
 SaveManager.Utility.ErrorMessages = {
     NOT_INITIALIZED = "The save manager cannot be used without initializing it first!",
     DATA_NOT_LOADED = "An attempt to use save data was made before it was loaded!",
@@ -101,13 +101,15 @@ SaveManager.DEFAULT_SAVE = {
 ]]
 
 function SaveManager.Utility.SendError(msg)
-    Isaac.ConsoleOutput(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg))
-    Isaac.DebugString(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg))
+    local _, traceback = pcall(error, "", 4) -- 4 because it is 4 layers deep
+    Isaac.ConsoleOutput(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg, traceback))
+    Isaac.DebugString(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg, traceback))
 end
 
 function SaveManager.Utility.SendWarning(msg)
-    Isaac.ConsoleOutput(SaveManager.Utility.WARNING_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg))
-    Isaac.DebugString(SaveManager.Utility.WARNING_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg))
+    local _, traceback = pcall(error, "", 4) -- 4 because it is 4 layers deep
+    Isaac.ConsoleOutput(SaveManager.Utility.WARNING_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg, traceback))
+    Isaac.DebugString(SaveManager.Utility.WARNING_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg, traceback))
 end
 
 function SaveManager.Utility.IsCircular(tab, traversed)
@@ -469,7 +471,7 @@ function SaveManager.Init(mod)
 
     modReference:AddCallback(ModCallbacks.MC_USE_ITEM, SaveManager.HourglassRestore, CollectibleType.COLLECTIBLE_GLOWING_HOUR_GLASS)
     modReference:AddCallback(ModCallbacks.MC_POST_PLAYER_INIT, onGameStart) -- it runs before the game started callback lol
-    modReference:AddCallback(ModCallbacks.MC_POST_UPDATE, detectLuamod)
+    modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_RENDER, CallbackPriority.IMPORTANT, detectLuamod) -- want to run as early as possible
     modReference:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, postNewRoom)
     modReference:AddCallback(ModCallbacks.MC_POST_NEW_LEVEL, postNewLevel)
     modReference:AddCallback(ModCallbacks.MC_PRE_GAME_EXIT, preGameExit)
