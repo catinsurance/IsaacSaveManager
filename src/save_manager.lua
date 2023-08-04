@@ -19,17 +19,28 @@ local skipNextRoomClear = false
 local skipNextLevelClear = false
 local inRunButNotLoaded = true
 
-SaveManager.Utility.ERROR_MESSAGE_FORMAT = "[IsaacSaveManager:%s] ERROR: %s"
-SaveManager.Utility.WARNING_MESSAGE_FORMAT = "[IsaacSaveManager:%s] WARNING: %s"
+SaveManager.Utility.ERROR_MESSAGE_FORMAT = "[IsaacSaveManager:%s] ERROR: %s\n"
+SaveManager.Utility.WARNING_MESSAGE_FORMAT = "[IsaacSaveManager:%s] WARNING: %s\n"
 SaveManager.Utility.ErrorMessages = {
     NOT_INITIALIZED = "The save manager cannot be used without initializing it first!",
     DATA_NOT_LOADED = "An attempt to use save data was made before it was loaded!",
     BAD_DATA = "An attempt to save invalid data was made!",
+    BAD_DATA_WARNING = "Data saved with warning!",
+    COPY_ERROR = "An error was made when copying from cached data to what would be saved! This could be due to a circular reference."
 }
 SaveManager.Utility.JsonIncompatibilityType = {
-    SPARSE_ARRAY = "Sparse arrays, or arrays with gaps between indexes, cannot be encoded.",
+    SPARSE_ARRAY = "Sparse arrays, or arrays with gaps between indexes, will fill gaps with null when encoded.",
+    INVALID_KEY_TYPE = "Tables that have non-string or non-integer (decimal or non-number) keys cannot be encoded.",
     MIXED_TABLES = "Tables with mixed key types cannot be encoded.",
     NAN_VALUE = "Tables with invalid numbers (NaN, -inf, inf) cannot be encoded.",
+    NO_FUNCTIONS = "Tables containing functions cannot be encoded.",
+    CIRCULAR_TABLE = "Tables that contain themselves cannot be encoded.",
+}
+
+SaveManager.Utility.ValidityState = {
+    VALID = 0,
+    VALID_WITH_WARNING = 1,
+    INVALID = 2,
 }
 
 ---@class SaveData
@@ -90,12 +101,33 @@ SaveManager.DEFAULT_SAVE = {
 ]]
 
 function SaveManager.Utility.SendError(msg)
-    Isaac.ConsoleOutput(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(msg))
-    Isaac.DebugString(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(msg))
+    Isaac.ConsoleOutput(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg))
+    Isaac.DebugString(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg))
 end
 
-function SaveManager.Utility.SendWarning(msg, formatString)
+function SaveManager.Utility.SendWarning(msg)
+    Isaac.ConsoleOutput(SaveManager.Utility.WARNING_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg))
+    Isaac.DebugString(SaveManager.Utility.WARNING_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg))
+end
 
+function SaveManager.Utility.IsCircular(tab, traversed)
+    traversed = traversed or {}
+
+    if traversed[tab] then
+        return true
+    end
+
+    traversed[tab] = true
+
+    for _, v in pairs(tab) do
+        if type(v) == "table" then
+            if SaveManager.Utility.IsCircular(v, traversed) then
+                return true
+            end
+        end
+    end
+
+    return false
 end
 
 function SaveManager.Utility.DeepCopy(tab)
@@ -165,8 +197,10 @@ local function isSparseArray(tab)
 end
 
 -- Recursively validates if a table can be encoded into valid JSON.
--- Returns true if it can be encoded, false if it cannot. If false, it will also return an error message.
+-- Returns 0 if it can be encoded, 1 if it can but has a warning, and 2 if item cannot. If 1 or 2, it will also return a message.
 function SaveManager.Utility.ValidateForJson(tab)
+    local hasWarning
+
     -- check for mixed table
     local indexType
     for index in pairs(tab) do
@@ -175,33 +209,56 @@ function SaveManager.Utility.ValidateForJson(tab)
         end
 
         if type(index) ~= indexType then
-            return false, SaveManager.Utility.JsonIncompatibilityType.MIXED_TABLES
+            return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.MIXED_TABLES
+        end
+
+        if type(index) ~= "string" and type(index) ~= "number" then
+            return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE
+        end
+
+        if type(index) == "number" and math.floor(index) ~= index then
+            return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE
         end
     end
 
     -- check for sparse array
     if isSparseArray(tab) then
-        return false, SaveManager.Utility.JsonIncompatibilityType.SPARSE_ARRAY
+        hasWarning = SaveManager.Utility.JsonIncompatibilityType.SPARSE_ARRAY
+    end
+
+    if SaveManager.Utility.IsCircular(tab) then
+        return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.CIRCULAR_TABLE
     end
 
     for _, value in pairs(tab) do
-        -- check for nan values
+        -- check for NaN values
         -- https://stackoverflow.com/a/49398150
         if type(value) == "number" then
             if tostring(value) == tostring(0/0) then
-                return false, SaveManager.Utility.JsonIncompatibilityType.NAN_VALUE
+                return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.NAN_VALUE
             end
+        end
+
+        if type(value) == "function" then
+            return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.NO_FUNCTIONS
         end
 
         if type(value) == "table" then
             local valid, error = SaveManager.Utility.ValidateForJson(value)
-            if not valid then
-                return false, error
+            if valid == SaveManager.Utility.ValidityState.INVALID then
+                return valid, error
+            elseif valid == SaveManager.Utility.ValidityState.VALID_WITH_WARNING then
+                hasWarning = error
             end
         end
+
     end
 
-    return true
+    if hasWarning then
+        return SaveManager.Utility.ValidityState.VALID_WITH_WARNING, hasWarning
+    end
+
+    return SaveManager.Utility.ValidityState.VALID
 end
 
 --[[
@@ -228,12 +285,37 @@ function SaveManager.Save()
     end
 
     -- Create backup
+    -- pcall deep copies the data to prevent errors from being thrown
+    -- errors thrown in unload callback crash isaac
 
-    local finalData = SaveManager.Utility.DeepCopy(dataCache)
-    finalData = SaveManager.Utility.PatchSaveFile(finalData, SaveManager.DEFAULT_SAVE)
+    local success, finalData = pcall(SaveManager.Utility.DeepCopy, dataCache)
 
-    local backupData = SaveManager.Utility.DeepCopy(hourglassBackup)
-    finalData.hourglassBackup = backupData
+    if success then
+        finalData = SaveManager.Utility.PatchSaveFile(finalData, SaveManager.DEFAULT_SAVE)
+    else
+        SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.COPY_ERROR)
+        return
+    end
+
+    local success2, backupData = pcall(SaveManager.Utility.DeepCopy, hourglassBackup)
+
+    if success2 then
+        finalData.hourglassBackup = backupData
+    else
+        SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.COPY_ERROR)
+        return
+    end
+
+    -- validate data
+    local valid, msg = SaveManager.Utility.ValidateForJson(finalData)
+    if valid == SaveManager.Utility.ValidityState.INVALID then
+        SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.BAD_DATA)
+        SaveManager.Utility.SendError(msg)
+        return
+    elseif valid == SaveManager.Utility.ValidityState.VALID_WITH_WARNING then
+        SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.BAD_DATA_WARNING)
+        SaveManager.Utility.SendWarning(msg)
+    end
 
     modReference:SaveData(json.encode(finalData))
 end

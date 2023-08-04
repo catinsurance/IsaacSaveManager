@@ -117,8 +117,12 @@ function mod:OnRender()
     end
 
     if Input.IsButtonTriggered(Keyboard.KEY_F8, player.ControllerIndex) then
-        local tab = {1, hi = "true", 4}
-        mod:SaveData(require("json").encode(tab))
+        local data = saveManager.GetRunSave(player)
+        data[1] = data
+        data[2] = 2
+        data[3] = "baz"
+
+        saveManager.Save()
     end
 end
 
