@@ -397,7 +397,8 @@ local function onGameStart(_, player)
             if i == SaveManager.PLAYER_DEFAULT_SAVE_KEY then
                 local targetTable = reconstructHistory(target, history)
                 if targetTable then
-                    targetTable[playerIndex] = SaveManager.Utility.DeepCopy(v)
+                    -- create or patch the target table with the default save
+                    targetTable[playerIndex] = SaveManager.Utility.PatchSaveFile(targetTable[playerIndex] or {}, SaveManager.Utility.DeepCopy(v))
                     targetTable[i] = nil
                 end
             elseif type(v) == "table" then
