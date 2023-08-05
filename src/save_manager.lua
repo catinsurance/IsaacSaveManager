@@ -3,7 +3,7 @@
 local json = require("json")
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 1.01
+SaveManager.VERSION = 1.02
 
 SaveManager.Utility = {}
 
