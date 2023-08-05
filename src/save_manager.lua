@@ -3,7 +3,7 @@
 local json = require("json")
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 1.0
+SaveManager.VERSION = 1.01
 
 SaveManager.Utility = {}
 
@@ -233,10 +233,10 @@ function SaveManager.Utility.ValidateForJson(tab)
     end
 
     for _, value in pairs(tab) do
-        -- check for NaN values
-        -- https://stackoverflow.com/a/49398150
+        -- check for NaN and infinite values
+        -- http://lua-users.org/wiki/InfAndNanComparisons
         if type(value) == "number" then
-            if tostring(value) == tostring(0/0) then
+            if value == math.huge or value == -math.huge or value ~= value then
                 return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.NAN_VALUE
             end
         end
