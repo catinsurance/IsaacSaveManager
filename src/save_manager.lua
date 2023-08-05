@@ -37,6 +37,12 @@ SaveManager.Utility.JsonIncompatibilityType = {
     CIRCULAR_TABLE = "Tables that contain themselves cannot be encoded.",
 }
 
+---@enum SaveManager.Utility.CustomCallback
+SaveManager.Utility.CustomCallback = {
+    PRE_DATA_SAVE = "ISAACSAVEMANAGER_PRE_DATA_SAVE",
+    POST_DATA_LOAD = "ISAACSAVEMANAGER_POST_DATA_LOAD",
+}
+
 SaveManager.Utility.ValidityState = {
     VALID = 0,
     VALID_WITH_WARNING = 1,
@@ -263,6 +269,23 @@ function SaveManager.Utility.ValidateForJson(tab)
     return SaveManager.Utility.ValidityState.VALID
 end
 
+function SaveManager.Utility.RunCallback(callbackId, ...)
+    if not modReference then
+        SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.NOT_INITIALIZED)
+        return
+    end
+
+    local id = modReference.__SAVEMANAGER_UNIQUE_KEY .. callbackId
+    local callbacks = Isaac.GetCallbacks(id)
+    table.sort(callbacks, function (a, b)
+        return a.Priority < b.Priority
+    end)
+
+    for _, callback in ipairs(callbacks) do
+        callback.Function(callback.Mod, ...)
+    end
+end
+
 --[[
     ########################
     #  CORE METHODS START  #
@@ -271,6 +294,18 @@ end
 
 function SaveManager.IsLoaded()
     return loadedData
+end
+
+---@param callbackId SaveManager.Utility.CustomCallback
+---@param callback function
+function SaveManager.AddCallback(callbackId, callback)
+    if not modReference then
+        SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.NOT_INITIALIZED)
+        return
+    end
+
+    local key = modReference.__SAVEMANAGER_UNIQUE_KEY
+    modReference:AddCallback(key .. callbackId, callback)
 end
 
 -- Saves save data to the file.
@@ -307,6 +342,8 @@ function SaveManager.Save()
         SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.COPY_ERROR)
         return
     end
+
+    SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_SAVE, finalData)
 
     -- validate data
     local valid, msg = SaveManager.Utility.ValidateForJson(finalData)
@@ -350,6 +387,8 @@ function SaveManager.Load()
 
     loadedData = true
     inRunButNotLoaded = false
+
+    SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.POST_DATA_LOAD, dataCache)
 end
 
 --[[
