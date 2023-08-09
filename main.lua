@@ -1,30 +1,36 @@
+
+-- This file is for testing purposes.
+
 local mod = RegisterMod("Test mod121hkj2h1jk2w", 1)
 local saveManager = include("src.save_manager")
+include("unlockapi")
+local modName = "Test mod121hkj2h1jk2w"
+
+UnlockAPI.Library:RegisterPlayer(modName, "Gray Isaac")
 
 -- You can edit the default save file either like this or in the save manager itself.
-saveManager.DEFAULT_SAVE.file.other.Test = "Hello world!"
 saveManager.Init(mod)
 
-function mod:OnRender()
-    local player = Isaac.GetPlayer(0)
-    if Input.IsButtonTriggered(Keyboard.KEY_F8, player.ControllerIndex) then
-        local runDataWithoutBackup = saveManager.GetRunSave(nil, false)
-        local runData = saveManager.GetRunSave()
-        if runData and runDataWithoutBackup then -- Check if they're both loaded! (if one is loaded the other is too, but just in case)
-            runData.foo = runData.foo and runData.foo + 1 or 1
-            runDataWithoutBackup.bar = runDataWithoutBackup.bar and runDataWithoutBackup.bar + 1 or 1
-        end
-    end
+function mod:PreSave(data)
+    -- notice how this callback is provided the entire save file
+    data.file.unlockApi = UnlockAPI.Library:GetSaveData(modName)
+end
 
-    -- Try this with glowing hourglass!
-    if Input.IsButtonTriggered(Keyboard.KEY_F9, player.ControllerIndex) then
-        local runDataWithoutBackup = saveManager.GetRunSave(nil, false)
-        local runData = saveManager.GetRunSave()
-        if runData and runDataWithoutBackup then
-            print("Foo in the run save: " .. runData.foo)
-            print("Bar in the run save that ignores Glowing Hourglass: " .. runDataWithoutBackup.bar)
-        end
+saveManager.AddCallback(saveManager.Utility.CustomCallback.PRE_DATA_SAVE, mod.PreSave)
+
+function mod:PostLoad(data)
+    -- notice how this callback is provided the entire save file
+    UnlockAPI.Library:LoadSaveData(data.file.unlockApi)
+end
+
+saveManager.AddCallback(saveManager.Utility.CustomCallback.POST_DATA_LOAD, mod.PostLoad)
+
+-- UnlockAPI wipes data on game start, which is later than the initial load, so load it again in that case.
+function mod:PostLoadGameStart()
+    local data = saveManager.GetUnlockAPISave()
+    if data then
+        UnlockAPI.Library:LoadSaveData(data)
     end
 end
 
-mod:AddCallback(ModCallbacks.MC_POST_RENDER, mod.OnRender)
+mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, mod.PostLoadGameStart)

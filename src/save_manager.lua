@@ -3,7 +3,7 @@
 local json = require("json")
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 1.02
+SaveManager.VERSION = 1.03
 
 SaveManager.Utility = {}
 
@@ -557,7 +557,8 @@ function SaveManager.GetRunSave(player, noHourglass)
         if player then
             local data = dataCache.gameNoBackup.run[SaveManager.Utility.GetPlayerIndex(player)]
             if data == nil then
-                dataCache.gameNoBackup.run[SaveManager.Utility.GetPlayerIndex(player)] = {}
+                local defaultPlayerSave = SaveManager.DEFAULT_SAVE.gameNoBackup.run[SaveManager.PLAYER_DEFAULT_SAVE_KEY]
+                dataCache.gameNoBackup.run[SaveManager.Utility.GetPlayerIndex(player)] = SaveManager.Utility.DeepCopy(defaultPlayerSave)
             end
 
             return dataCache.gameNoBackup.run[SaveManager.Utility.GetPlayerIndex(player)]
@@ -568,7 +569,8 @@ function SaveManager.GetRunSave(player, noHourglass)
         if player then
             local data = dataCache.game.run[SaveManager.Utility.GetPlayerIndex(player)]
             if data == nil then
-                dataCache.game.run[SaveManager.Utility.GetPlayerIndex(player)] = {}
+                local defaultPlayerSave = SaveManager.DEFAULT_SAVE.game.run[SaveManager.PLAYER_DEFAULT_SAVE_KEY]
+                dataCache.game.run[SaveManager.Utility.GetPlayerIndex(player)] = SaveManager.Utility.DeepCopy(defaultPlayerSave)
             end
 
             return dataCache.game.run[SaveManager.Utility.GetPlayerIndex(player)]
@@ -597,7 +599,8 @@ function SaveManager.GetFloorSave(player, noHourglass)
         if player then
             local data = dataCache.gameNoBackup.floor[SaveManager.Utility.GetPlayerIndex(player)]
             if data == nil then
-                dataCache.gameNoBackup.floor[SaveManager.Utility.GetPlayerIndex(player)] = {}
+                local defaultPlayerSave = SaveManager.DEFAULT_SAVE.gameNoBackup.floor[SaveManager.PLAYER_DEFAULT_SAVE_KEY]
+                dataCache.gameNoBackup.floor[SaveManager.Utility.GetPlayerIndex(player)] = SaveManager.Utility.DeepCopy(defaultPlayerSave)
             end
 
             return dataCache.gameNoBackup.floor[SaveManager.Utility.GetPlayerIndex(player)]
@@ -608,7 +611,8 @@ function SaveManager.GetFloorSave(player, noHourglass)
         if player then
             local data = dataCache.game.floor[SaveManager.Utility.GetPlayerIndex(player)]
             if data == nil then
-                dataCache.game.floor[SaveManager.Utility.GetPlayerIndex(player)] = {}
+                local defaultPlayerSave = SaveManager.DEFAULT_SAVE.game.floor[SaveManager.PLAYER_DEFAULT_SAVE_KEY]
+                dataCache.game.floor[SaveManager.Utility.GetPlayerIndex(player)] = SaveManager.Utility.DeepCopy(defaultPlayerSave)
             end
 
             return dataCache.game.floor[SaveManager.Utility.GetPlayerIndex(player)]
@@ -637,7 +641,8 @@ function SaveManager.GetRoomSave(player, noHourglass)
         if player then
             local data = dataCache.gameNoBackup.room[SaveManager.Utility.GetPlayerIndex(player)]
             if data == nil then
-                dataCache.gameNoBackup.room[SaveManager.Utility.GetPlayerIndex(player)] = {}
+                local defaultPlayerSave = SaveManager.DEFAULT_SAVE.gameNoBackup.room[SaveManager.PLAYER_DEFAULT_SAVE_KEY]
+                dataCache.gameNoBackup.room[SaveManager.Utility.GetPlayerIndex(player)] = SaveManager.Utility.DeepCopy(defaultPlayerSave)
             end
 
             return dataCache.gameNoBackup.room[SaveManager.Utility.GetPlayerIndex(player)]
@@ -648,7 +653,8 @@ function SaveManager.GetRoomSave(player, noHourglass)
         if player then
             local data = dataCache.game.room[SaveManager.Utility.GetPlayerIndex(player)]
             if data == nil then
-                dataCache.game.room[SaveManager.Utility.GetPlayerIndex(player)] = {}
+                local defaultPlayerSave = SaveManager.DEFAULT_SAVE.game.room[SaveManager.PLAYER_DEFAULT_SAVE_KEY]
+                dataCache.game.room[SaveManager.Utility.GetPlayerIndex(player)] = SaveManager.Utility.DeepCopy(defaultPlayerSave)
             end
 
             return dataCache.game.room[SaveManager.Utility.GetPlayerIndex(player)]
