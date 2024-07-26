@@ -5,7 +5,7 @@
 
 - Data validator that prevents corrupt save data.
 - Saves specific to the room, floor, and run, along with saves that persist for the entire file.
-- Player specific saves.
+- Player, familiar, pickup, slot, and grid specific saves.
 - Different saves depending on if you want the data to be affected by Glowing Hourglass or not.
 - Easy to understand system to make default data.
 - Intuitive as heck!
