@@ -24,6 +24,7 @@ local skipFloorReset = false
 local skipRoomReset = false
 local shouldRestoreOnUse = true
 local myosotisCheck = false
+local movingBoxCheck = true
 local currentFloor = 0
 local currentListIndex = 0
 local storePickupDataOnGameExit = false
@@ -82,8 +83,9 @@ SaveManager.Utility.ValidityState = {
 
 ---@class PickupSave
 ---@field floor table @Things in this table are persistent for the current floor and the first room of the next floor.
----@field treasureRoom table @Things in this table are persistent for the entire run, meant for when you re-visit Treasure Room in the Ascent
----@field bossRoom table @Things in this table are persistent for the entire run, meant for when you re-visit Boss Room in the Ascent
+---@field treasureRoom table @Things in this table are persistent for the entire run, meant for when you re-visit Treasure Room in the Ascent.
+---@field bossRoom table @Things in this table are persistent for the entire run, meant for when you re-visit Boss Room in the Ascent.
+---@field movingBox table Things in this table are persistent for the entire run, meant for storing pickups that are carried through Moving Box.
 
 ---@class FileSave
 ---@field unlockApi table @Built in compatibility for UnlockAPI (https://github.com/dsju/unlockapi)
@@ -100,9 +102,10 @@ SaveManager.DEFAULT_SAVE = {
 		roomFloor = {},
 		room = {},
 		pickup = {
+			floor = {},
 			treasureRoom = {},
 			bossRoom = {},
-			floor = {}
+			movingBox = {}
 		}
 	},
 	gameNoBackup = {
@@ -125,7 +128,7 @@ SaveManager.DEFAULT_SAVE = {
     ###########################
 ]]
 
-SaveManager.Debug = true
+SaveManager.Debug = false
 
 function SaveManager.Utility.SendError(msg)
 	local _, traceback = pcall(error, "", 4) -- 4 because it is 4 layers deep
@@ -618,18 +621,15 @@ function SaveManager.Utility.GetPickupIndex(pickup, checkLastIndex)
 			math.floor(pickup.Position.Y),
 			pickup.InitSeed },
 		"_")
-	if myosotisCheck then
-		--Trick code to pulling previous floor's data only if initseed matches.
-		--Even with dupe initseeds pickups spawning, it'll go through and init data for each one
-		SaveManager.Utility.SendDebugMessage("Myotosis active. Searching for matching data...")
+	if myosotisCheck or movingBoxCheck then
+		SaveManager.Utility.SendDebugMessage("Data active for a transferred pickup. Attempting to find data...")
 
-		for backupIndex, _ in pairs(hourglassBackup.pickup.floor) do
+		for backupIndex, _ in pairs(myosotisCheck and hourglassBackup.pickup.floor or dataCache.game.pickup.movingBox) do
 			local initSeed = pickup.InitSeed
 
 			if string.sub(backupIndex, -string.len(tostring(initSeed)), -1) == tostring(initSeed) then
 				index = backupIndex
-				SaveManager.Utility.SendDebugMessage("Myotosis data found for",
-					SaveManager.Utility.GetSaveIndex(pickup) .. ".")
+				SaveManager.Utility.SendDebugMessage("Stored data found for", SaveManager.Utility.GetSaveIndex(pickup) .. ".")
 				break
 			end
 		end
@@ -637,13 +637,22 @@ function SaveManager.Utility.GetPickupIndex(pickup, checkLastIndex)
 	return index
 end
 
+local function getStoredPickupData(dataStorage, pickupIndex)
+	if myosotisCheck then
+		return hourglassBackup.pickup[dataStorage][pickupIndex]
+	elseif movingBoxCheck then
+		return dataCache.game.pickup.movingBox[pickupIndex]
+	else
+		return dataCache.game.pickup[dataStorage][pickupIndex]
+	end
+end
+
 ---Gets run-persistent pickup data if it was inside a boss room.
 ---@param pickup EntityPickup
 ---@return table?
 function SaveManager.Utility.GetPickupAscentBoss(pickup)
 	local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup)
-	local pickupData = myosotisCheck and hourglassBackup.pickup.bossRoom[pickupIndex] or
-	dataCache.game.pickup.bossRoom[pickupIndex]
+	local pickupData = getStoredPickupData("bossRoom", pickupIndex)
 	return pickupData
 end
 
@@ -652,8 +661,7 @@ end
 ---@return table?
 function SaveManager.Utility.GetPickupAscentTreasure(pickup)
 	local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup)
-	local pickupData = myosotisCheck and hourglassBackup.pickup.treasureRoom[pickupIndex] or
-	dataCache.game.pickup.treasureRoom[pickupIndex]
+	local pickupData = getStoredPickupData("treasureRoom", pickupIndex)
 	return pickupData
 end
 
@@ -665,8 +673,7 @@ end
 ---@return table?, string
 function SaveManager.Utility.GetPickupData(pickup)
 	local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup)
-	local pickupData = myosotisCheck and hourglassBackup.pickup.floor[pickupIndex] or
-	dataCache.game.pickup.floor[pickupIndex]
+	local pickupData = getStoredPickupData("floor", pickupIndex)
 	if not pickupData and game:GetLevel():IsAscent() then
 		SaveManager.Utility.SendDebugMessage("Was unable to locate floor-saved room data. Searching Ascent...")
 		if game:GetRoom():GetType() == RoomType.ROOM_BOSS then
@@ -688,13 +695,18 @@ local function storePickupData(pickup)
 	end
 	local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup, not storePickupDataOnGameExit)
 	local pickupData = dataCache.game.pickup
-	if game:GetRoom():GetType() == RoomType.ROOM_TREASURE then
-		pickupData.treasureRoom[pickupIndex] = roomPickupData
-	elseif game:GetRoom():GetType() == RoomType.ROOM_BOSS then
-		pickupData.bossRoom[pickupIndex] = roomPickupData
+	if movingBoxCheck then
+		pickupData.movingBox[pickupIndex] = roomPickupData
+		print("Stored Moving Box pickup data for", pickupIndex)
+	else
+		if game:GetRoom():GetType() == RoomType.ROOM_TREASURE then
+			pickupData.treasureRoom[pickupIndex] = roomPickupData
+		elseif game:GetRoom():GetType() == RoomType.ROOM_BOSS then
+			pickupData.bossRoom[pickupIndex] = roomPickupData
+		end
+		pickupData.floor[pickupIndex] = roomPickupData
+		SaveManager.Utility.SendDebugMessage("Stored pickup data for", pickupIndex)
 	end
-	pickupData.floor[pickupIndex] = roomPickupData
-	SaveManager.Utility.SendDebugMessage("Stored pickup data for", pickupIndex, pickupData.floor[pickupIndex])
 end
 
 ---When re-entering a room, gives back floor-persistent data to valid pickups.
@@ -709,12 +721,16 @@ local function populatePickupData(pickup)
 		SaveManager.Utility.SendDebugMessage("Successfully populated pickup data from floor-saved room data for",
 			SaveManager.Utility.GetSaveIndex(pickup))
 		local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup)
-		if game:GetRoom():GetType() == RoomType.ROOM_BOSS then
-			dataCache.game.pickup.bossRoom[pickupIndex] = nil
-		elseif game:GetRoom():GetType() == RoomType.ROOM_TREASURE then
-			dataCache.game.pickup.treasureRoom[pickupIndex] = nil
+		if movingBoxCheck then
+			dataCache.game.pickup.movingBox[pickupIndex] = nil
+		else
+			if game:GetRoom():GetType() == RoomType.ROOM_BOSS then
+				dataCache.game.pickup.bossRoom[pickupIndex] = nil
+			elseif game:GetRoom():GetType() == RoomType.ROOM_TREASURE then
+				dataCache.game.pickup.treasureRoom[pickupIndex] = nil
+			end
+			dataCache.game.pickup.floor[pickupIndex] = nil
 		end
-		dataCache.game.pickup.floor[pickupIndex] = nil
 	else
 		SaveManager.Utility.SendDebugMessage("Failed to find floor-saved room data for",
 			SaveManager.Utility.GetPickupIndex(pickup))
@@ -829,6 +845,8 @@ local function detectLuamod()
 			SaveManager.Load()
 			inRunButNotLoaded = false
 			shouldRestoreOnUse = true
+			currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
+			currentFloor = game:GetLevel():GetStage()
 		end
 	end
 end
@@ -880,8 +898,8 @@ local function postEntityRemove(_, ent)
 		return
 	end
 
-	if game:IsPaused() and not storePickupDataOnGameExit then
-		if ent:ToPickup() then
+	if (game:IsPaused() and not storePickupDataOnGameExit) or (ent.Type == EntityType.ENTITY_PICKUP and movingBoxCheck) then
+		if ent.Type == EntityType.ENTITY_PICKUP then
 			---@cast ent EntityPickup
 			storePickupData(ent)
 		end
@@ -956,9 +974,8 @@ local function postNewLevel()
 end
 
 local function postUpdate()
-	if myosotisCheck then --Triggers after entities finish spawning on new floor
-		myosotisCheck = false
-	end
+	myosotisCheck = false
+	movingBoxCheck = false
 	if not REPENTOGON then return end
 	for _, slot in pairs(Isaac.FindByType(EntityType.ENTITY_SLOT)) do
 		if slot.FrameCount == 0 then
@@ -1015,6 +1032,9 @@ function SaveManager.Init(mod, j)
 	modReference:AddCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, postEntityRemove)
 	modReference:AddCallback(ModCallbacks.MC_POST_UPDATE, postUpdate)
 	modReference:AddCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, postPickupUpdate)
+	modReference:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, function() movingBoxCheck = true end, CollectibleType.COLLECTIBLE_MOVING_BOX)
+	modReference:AddCallback(ModCallbacks.MC_USE_ITEM,
+	function() movingBoxCheck = false end, CollectibleType.COLLECTIBLE_MOVING_BOX)
 	if REPENTOGON then
 		modReference:AddCallback(ModCallbacks.MC_POST_SLOT_INIT, onEntityInit)
 	end
