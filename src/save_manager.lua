@@ -976,7 +976,7 @@ local function postPickupUpdate(_, pickup)
 			local data = tab[dataLength][saveIndex]
 			if not data then goto continue end
 			if data.InitSeed ~= pickup.InitSeed then
-				data.NoRerollSave = SaveManager.Utility.PatchSaveFile({}, default[dataLength])
+				data.RerollSave = SaveManager.Utility.PatchSaveFile({}, default[dataLength])
 				data.InitSeed = pickup.InitSeed
 				SaveManager.Utility.SendDebugMessage("Detected init seed change in", saveIndex,
 					"! NoRerollSave has been reloaded")
