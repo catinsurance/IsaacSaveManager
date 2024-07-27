@@ -697,7 +697,7 @@ local function storePickupData(pickup)
 	local pickupData = dataCache.game.pickup
 	if movingBoxCheck then
 		pickupData.movingBox[pickupIndex] = roomPickupData
-		print("Stored Moving Box pickup data for", pickupIndex)
+		SaveManager.Utility.SendDebugMessage("Stored Moving Box pickup data for", pickupIndex)
 	else
 		if game:GetRoom():GetType() == RoomType.ROOM_TREASURE then
 			pickupData.treasureRoom[pickupIndex] = roomPickupData
