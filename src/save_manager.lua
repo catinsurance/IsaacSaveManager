@@ -430,7 +430,8 @@ end
 ---@param saveKey string
 ---@param dataDuration DataDuration
 ---@param data table
-local function addDefaultData(saveKey, dataDuration, data)
+---@param noHourglass? boolean
+local function addDefaultData(saveKey, dataDuration, data, noHourglass)
 	if not SaveManager.Utility.IsDefaultSaveKey(saveKey) then
 		return
 	end
@@ -446,41 +447,41 @@ local function addDefaultData(saveKey, dataDuration, data)
 		return
 	end
 
-	local function patchDefaultSave(tab)
-		local dataTable = tab[dataDuration]
+	local gameFile = noHourglass and SaveManager.DEFAULT_SAVE.gameNoBackup or SaveManager.DEFAULT_SAVE.game
+	local dataTable = gameFile[dataDuration]
 
-		---@cast saveKey string
-		if dataTable[saveKey] == nil then
-			dataTable[saveKey] = {}
-		end
-		dataTable = dataTable[saveKey]
-
-		SaveManager.Utility.PatchSaveFile(dataTable, data)
+	---@cast saveKey string
+	if dataTable[saveKey] == nil then
+		dataTable[saveKey] = {}
 	end
+	dataTable = dataTable[saveKey]
+
+	SaveManager.Utility.PatchSaveFile(dataTable, data)
 	SaveManager.Utility.SendDebugMessage(saveKey, dataDuration)
-	patchDefaultSave(SaveManager.DEFAULT_SAVE.game)
-	patchDefaultSave(SaveManager.DEFAULT_SAVE.gameNoBackup)
 end
 
 ---Adds data that will be automatically added when the run data is first initialized.
 ---@param dataType DefaultSaveKeys
 ---@param data table
-function SaveManager.Utility.AddDefaultRunData(dataType, data)
-	addDefaultData(dataType, "run", data)
+---@param noHourglass? boolean @Assigned save data will not be restored when using Glowing Hourglass.
+function SaveManager.Utility.AddDefaultRunData(dataType, data, noHourglass)
+	addDefaultData(dataType, "run", data, noHourglass)
 end
 
 ---Adds data that will be automatically added when the floor data is first initialized.
 ---@param dataType DefaultSaveKeys
 ---@param data table
-function SaveManager.Utility.AddDefaultFloorData(dataType, data)
-	addDefaultData(dataType, "floor", data)
+---@param noHourglass? boolean @Assigned save data will not be restored when using Glowing Hourglass.
+function SaveManager.Utility.AddDefaultFloorData(dataType, data, noHourglass)
+	addDefaultData(dataType, "floor", data, noHourglass)
 end
 
 ---Adds data that will be automatically added when the room data is first initialized.
 ---@param dataType DefaultSaveKeys
 ---@param data table
-function SaveManager.Utility.AddDefaultRoomData(dataType, data)
-	addDefaultData(dataType, "room", data)
+---@param noHourglass? boolean @Assigned save data will not be restored when using Glowing Hourglass.
+function SaveManager.Utility.AddDefaultRoomData(dataType, data, noHourglass)
+	addDefaultData(dataType, "room", data, noHourglass)
 end
 
 --[[
@@ -622,6 +623,8 @@ function SaveManager.Utility.GetPickupIndex(pickup, checkLastIndex)
 			pickup.InitSeed },
 		"_")
 	if myosotisCheck or movingBoxCheck then
+		--Trick code to pulling previous floor's data only if initseed matches.
+		--Even with dupe initseeds pickups spawning, it'll go through and init data for each one
 		SaveManager.Utility.SendDebugMessage("Data active for a transferred pickup. Attempting to find data...")
 
 		for backupIndex, _ in pairs(myosotisCheck and hourglassBackup.pickup.floor or dataCache.game.pickup.movingBox) do
@@ -697,7 +700,7 @@ local function storePickupData(pickup)
 	local pickupData = dataCache.game.pickup
 	if movingBoxCheck then
 		pickupData.movingBox[pickupIndex] = roomPickupData
-		SaveManager.Utility.SendDebugMessage("Stored Moving Box pickup data for", pickupIndex)
+		print("Stored Moving Box pickup data for", pickupIndex)
 	else
 		if game:GetRoom():GetType() == RoomType.ROOM_TREASURE then
 			pickupData.treasureRoom[pickupIndex] = roomPickupData
