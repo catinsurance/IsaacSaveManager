@@ -463,7 +463,7 @@ end
 ---Adds data that will be automatically added when the run data is first initialized.
 ---@param dataType DefaultSaveKeys
 ---@param data table
----@param noHourglass? boolean @Assigned save data will not be restored when using Glowing Hourglass.
+---@param noHourglass? boolean @If true, will load data in a separate game save that is not affected by Glowing Hourglass.
 function SaveManager.Utility.AddDefaultRunData(dataType, data, noHourglass)
 	addDefaultData(dataType, "run", data, noHourglass)
 end
@@ -471,7 +471,7 @@ end
 ---Adds data that will be automatically added when the floor data is first initialized.
 ---@param dataType DefaultSaveKeys
 ---@param data table
----@param noHourglass? boolean @Assigned save data will not be restored when using Glowing Hourglass.
+---@param noHourglass? boolean @If true, will load data in a separate game save that is not affected by Glowing Hourglass.
 function SaveManager.Utility.AddDefaultFloorData(dataType, data, noHourglass)
 	addDefaultData(dataType, "floor", data, noHourglass)
 end
@@ -479,7 +479,7 @@ end
 ---Adds data that will be automatically added when the room data is first initialized.
 ---@param dataType DefaultSaveKeys
 ---@param data table
----@param noHourglass? boolean @Assigned save data will not be restored when using Glowing Hourglass.
+---@param noHourglass? boolean @If true, will load data in a separate game save that is not affected by Glowing Hourglass.
 function SaveManager.Utility.AddDefaultRoomData(dataType, data, noHourglass)
 	addDefaultData(dataType, "room", data, noHourglass)
 end
