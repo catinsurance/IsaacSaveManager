@@ -2,7 +2,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 2
+SaveManager.VERSION = 2.01
 
 SaveManager.Utility = {}
 
@@ -18,7 +18,7 @@ SaveManager.DefaultSaveKeys = {
 }
 
 local modReference
-local json
+local json = require("json")
 local loadedData = false
 local skipFloorReset = false
 local skipRoomReset = false
@@ -588,7 +588,7 @@ end
 
 ---@param checkLastIndex? boolean
 local function getListIndex(checkLastIndex)
-	local level = Game():GetLevel()
+	local level = game:GetLevel()
 	if level:GetStage() ~= currentFloor then
 		return tostring(currentListIndex)
 	else
@@ -632,7 +632,8 @@ function SaveManager.Utility.GetPickupIndex(pickup, checkLastIndex)
 
 			if string.sub(backupIndex, -string.len(tostring(initSeed)), -1) == tostring(initSeed) then
 				index = backupIndex
-				SaveManager.Utility.SendDebugMessage("Stored data found for", SaveManager.Utility.GetSaveIndex(pickup) .. ".")
+				SaveManager.Utility.SendDebugMessage("Stored data found for",
+					SaveManager.Utility.GetSaveIndex(pickup) .. ".")
 				break
 			end
 		end
@@ -862,10 +863,10 @@ local function resetData(type)
 		hourglassBackup[type] = SaveManager.Utility.DeepCopy(dataCache.game[type])
 		if type == "floor" then
 			hourglassBackup.pickup.floor = SaveManager.Utility.DeepCopy(dataCache.game.pickup.floor)
+			SaveManager.Save()
 		end
 		dataCache.game[type] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game[type])
 		dataCache.gameNoBackup[type] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup[type])
-		SaveManager.Save()
 		SaveManager.Utility.SendDebugMessage("reset", type, "data")
 		shouldRestoreOnUse = true
 	end
@@ -1016,9 +1017,8 @@ end
 
 -- Initializes the save manager.
 ---@param mod table @The reference to your mod. This is the table that is returned when you call `RegisterMod`.
-function SaveManager.Init(mod, j)
+function SaveManager.Init(mod)
 	modReference = mod
-	json = j
 
 	modReference:AddCallback(ModCallbacks.MC_USE_ITEM, SaveManager.HourglassRestore,
 		CollectibleType.COLLECTIBLE_GLOWING_HOUR_GLASS)
@@ -1035,9 +1035,10 @@ function SaveManager.Init(mod, j)
 	modReference:AddCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, postEntityRemove)
 	modReference:AddCallback(ModCallbacks.MC_POST_UPDATE, postUpdate)
 	modReference:AddCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, postPickupUpdate)
-	modReference:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, function() movingBoxCheck = true end, CollectibleType.COLLECTIBLE_MOVING_BOX)
+	modReference:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, function() movingBoxCheck = true end,
+		CollectibleType.COLLECTIBLE_MOVING_BOX)
 	modReference:AddCallback(ModCallbacks.MC_USE_ITEM,
-	function() movingBoxCheck = false end, CollectibleType.COLLECTIBLE_MOVING_BOX)
+		function() movingBoxCheck = false end, CollectibleType.COLLECTIBLE_MOVING_BOX)
 	if REPENTOGON then
 		modReference:AddCallback(ModCallbacks.MC_POST_SLOT_INIT, onEntityInit)
 	end
