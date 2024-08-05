@@ -1,9 +1,9 @@
+---@diagnostic disable: missing-fields
 -- Check out everything here: https://github.com/maya-bee/IsaacSaveManager
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 2.01
-
+SaveManager.VERSION = 2.02
 SaveManager.Utility = {}
 
 -- Used in the DEFAULT_SAVE table as a key with the value being the default save data for a player in this save type.
@@ -59,6 +59,8 @@ SaveManager.Utility.JsonIncompatibilityType = {
 ---@enum SaveManager.Utility.CustomCallback
 SaveManager.Utility.CustomCallback = {
 	PRE_DATA_SAVE = "ISAACSAVEMANAGER_PRE_DATA_SAVE",
+	POST_DATA_SAVE = "ISAACSAVEMANAGER_POST_DATA_LOAD",
+	PRE_DATA_LOAD = "ISAACSAVEMANAGER_PRE_DATA_LOAD",
 	POST_DATA_LOAD = "ISAACSAVEMANAGER_POST_DATA_LOAD",
 }
 
@@ -128,10 +130,12 @@ SaveManager.DEFAULT_SAVE = {
     ###########################
 ]]
 
+--#region utility methods
+
 SaveManager.Debug = false
 
 function SaveManager.Utility.SendError(msg)
-	local _, traceback = pcall(error, "", 4) -- 4 because it is 4 layers deep
+	local _, traceback = pcall(error, "", 5) -- 5 because it is 5 layers deep
 	Isaac.ConsoleOutput(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg,
 		traceback))
 	Isaac.DebugString(SaveManager.Utility.ERROR_MESSAGE_FORMAT:format(modReference and modReference.Name or "???", msg,
@@ -421,11 +425,15 @@ function SaveManager.Utility.IsDataInitialized()
 	return true
 end
 
+--#endregion
+
 --[[
     ################################
     #  DEFAULT DATA METHODS START  #
     ################################
 ]]
+
+--#region default data
 
 ---@param saveKey string
 ---@param dataDuration DataDuration
@@ -484,11 +492,15 @@ function SaveManager.Utility.AddDefaultRoomData(dataType, data, noHourglass)
 	addDefaultData(dataType, "room", data, noHourglass)
 end
 
+--#endregion
+
 --[[
     ########################
     #  CORE METHODS START  #
     ########################
 ]]
+
+--#region core methods
 
 function SaveManager.IsLoaded()
 	return loadedData
@@ -546,6 +558,8 @@ function SaveManager.Save()
 	end
 
 	modReference:SaveData(json.encode(finalData))
+
+	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.POST_DATA_SAVE, finalData)
 end
 
 -- Restores the game save with the data in the hourglass backup.
@@ -558,7 +572,8 @@ function SaveManager.HourglassRestore()
 end
 
 -- Loads save data from the file, overwriting what is already loaded.
-function SaveManager.Load()
+---@param isLuamod? boolean
+function SaveManager.Load(isLuamod)
 	if not modReference then
 		SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.NOT_INITIALIZED)
 		return
@@ -570,6 +585,8 @@ function SaveManager.Load()
 		local data = json.decode(modReference:LoadData())
 		saveData = SaveManager.Utility.PatchSaveFile(data, SaveManager.DEFAULT_SAVE)
 	end
+
+	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_LOAD, dataCache)
 
 	dataCache = saveData
 	hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
@@ -614,7 +631,6 @@ end
 ---@param pickup EntityPickup
 ---@param checkLastIndex? boolean
 function SaveManager.Utility.GetPickupIndex(pickup, checkLastIndex)
-	local level = game:GetLevel()
 	local index = table.concat(
 		{ "PICKUP_FLOORDATA",
 			getListIndex(checkLastIndex),
@@ -701,7 +717,7 @@ local function storePickupData(pickup)
 	local pickupData = dataCache.game.pickup
 	if movingBoxCheck then
 		pickupData.movingBox[pickupIndex] = roomPickupData
-		print("Stored Moving Box pickup data for", pickupIndex)
+		SaveManager.Utility.SendDebugMessage("Stored Moving Box pickup data for", pickupIndex)
 	else
 		if game:GetRoom():GetType() == RoomType.ROOM_TREASURE then
 			pickupData.treasureRoom[pickupIndex] = roomPickupData
@@ -741,17 +757,21 @@ local function populatePickupData(pickup)
 	end
 end
 
+--#endregion
+
 --[[
     ##########################
     #  CORE CALLBACKS START  #
     ##########################
 ]]
 
+--#region core callbacks
+
 local function onGameLoad()
 	storePickupDataOnGameExit = false
 	skipFloorReset = true
 	skipRoomReset = true
-	SaveManager.Load()
+	SaveManager.Load(false)
 end
 
 ---@param ent? Entity
@@ -846,7 +866,7 @@ end
 local function detectLuamod()
 	if game:GetFrameCount() > 0 then
 		if not loadedData and inRunButNotLoaded then
-			SaveManager.Load()
+			SaveManager.Load(true)
 			inRunButNotLoaded = false
 			shouldRestoreOnUse = true
 			currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
@@ -864,6 +884,14 @@ local function resetData(type)
 		if type == "floor" then
 			hourglassBackup.pickup.floor = SaveManager.Utility.DeepCopy(dataCache.game.pickup.floor)
 			SaveManager.Save()
+		elseif type == "room" then
+			--roomFloor data from gotoCommands should be removed, as if it were a room save. It is not persistent.
+			if dataCache.game.roomFloor["509"] then
+				dataCache.game.roomFloor["509"] = nil
+			end
+			if dataCache.gameNoBackup.roomFloor["509"] then
+				dataCache.gameNoBackup.roomFloor["509"] = nil
+			end
 		end
 		dataCache.game[type] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game[type])
 		dataCache.gameNoBackup[type] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup[type])
@@ -877,12 +905,18 @@ local function resetData(type)
 	end
 end
 
-local function preGameExit()
+local function preGameExit(_, shouldSave)
 	SaveManager.Utility.SendDebugMessage("pre game exit")
-	storePickupDataOnGameExit = true
-	for _, pickup in pairs(Isaac.FindByType(EntityType.ENTITY_PICKUP)) do
-		---@cast pickup EntityPickup
-		storePickupData(pickup)
+	if shouldSave then
+		storePickupDataOnGameExit = true
+		for _, pickup in pairs(Isaac.FindByType(EntityType.ENTITY_PICKUP)) do
+			---@cast pickup EntityPickup
+			storePickupData(pickup)
+		end
+	else
+		dataCache.game = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+		dataCache.gameNoBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup)
+		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 	end
 	SaveManager.Save()
 	loadedData = false
@@ -980,7 +1014,7 @@ end
 local function postUpdate()
 	myosotisCheck = false
 	movingBoxCheck = false
-	if not REPENTOGON then return end
+	if REPENTOGON then return end
 	for _, slot in pairs(Isaac.FindByType(EntityType.ENTITY_SLOT)) do
 		if slot.FrameCount == 0 then
 			onEntityInit(_, slot)
@@ -997,10 +1031,10 @@ local function postPickupUpdate(_, pickup)
 			local data = tab[dataLength][saveIndex]
 			if not data then goto continue end
 			if data.InitSeed ~= pickup.InitSeed then
-				data.RerollSave = SaveManager.Utility.PatchSaveFile({}, default[dataLength])
+				data.NoRerollSave = SaveManager.Utility.PatchSaveFile({}, default[dataLength])
 				data.InitSeed = pickup.InitSeed
 				SaveManager.Utility.SendDebugMessage("Detected init seed change in", saveIndex,
-					"! NoRerollSave has been reloaded")
+					"! RerollSave has been reloaded")
 			end
 			::continue::
 		end
@@ -1009,56 +1043,84 @@ local function postPickupUpdate(_, pickup)
 	resetNoRerollData(dataCache.gameNoBackup, SaveManager.DEFAULT_SAVE.gameNoBackup)
 end
 
+---With REPENTOGON, allows you to load data whenever you select a save slot.
+---@param saveSlot integer
+---@param isSlotSelected boolean
+---@param rawSlot integer
+local function postSaveSlotLoad(saveSlot, isSlotSelected, rawSlot)
+	if not isSlotSelected then
+		return
+	end
+	SaveManager.Load(false)
+end
+
+--#endregion
+
 --[[
     ##########################
     #  INITIALIZATION LOGIC  #
     ##########################
 ]]
 
+--#region init logic
+
 -- Initializes the save manager.
 ---@param mod table @The reference to your mod. This is the table that is returned when you call `RegisterMod`.
 function SaveManager.Init(mod)
 	modReference = mod
-
-	modReference:AddCallback(ModCallbacks.MC_USE_ITEM, SaveManager.HourglassRestore,
+	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, CallbackPriority.EARLY, SaveManager.HourglassRestore,
 		CollectibleType.COLLECTIBLE_GLOWING_HOUR_GLASS)
-	-- it runs before the game started callback lol
-	modReference:AddCallback(ModCallbacks.MC_POST_PLAYER_INIT, function() onEntityInit() end) --Global data
-	modReference:AddCallback(ModCallbacks.MC_POST_PLAYER_INIT, onEntityInit)
-	modReference:AddCallback(ModCallbacks.MC_FAMILIAR_INIT, onEntityInit)
-	modReference:AddCallback(ModCallbacks.MC_POST_PICKUP_INIT, onEntityInit)
-	modReference:AddCallback(ModCallbacks.MC_POST_SLOT_INIT, onEntityInit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_RENDER, CallbackPriority.IMPORTANT, detectLuamod) -- want to run as early as possible
-	modReference:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, postNewRoom)
-	modReference:AddCallback(ModCallbacks.MC_POST_NEW_LEVEL, postNewLevel)
-	modReference:AddCallback(ModCallbacks.MC_PRE_GAME_EXIT, preGameExit)
-	modReference:AddCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, postEntityRemove)
-	modReference:AddCallback(ModCallbacks.MC_POST_UPDATE, postUpdate)
-	modReference:AddCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, postPickupUpdate)
-	modReference:AddCallback(ModCallbacks.MC_PRE_USE_ITEM, function() movingBoxCheck = true end,
+	-- Priority callbacks put in place to load data early and save data late.
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, CallbackPriority.IMPORTANT,
+		function() onEntityInit() end)                                                                                         --Global data
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, CallbackPriority.IMPORTANT, onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_FAMILIAR_INIT, CallbackPriority.IMPORTANT, onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_INIT, CallbackPriority.IMPORTANT, onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, CallbackPriority.IMPORTANT, onEntityInit)
+
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NPC_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_EFFECT_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
+
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_ROOM, CallbackPriority.EARLY, postNewRoom)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_LEVEL, CallbackPriority.EARLY, postNewLevel)
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, CallbackPriority.LATE, preGameExit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, CallbackPriority.LATE, postEntityRemove)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, CallbackPriority.EARLY, postUpdate)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, CallbackPriority.EARLY, postPickupUpdate)
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, CallbackPriority.EARLY,
+		function() movingBoxCheck = true end,
 		CollectibleType.COLLECTIBLE_MOVING_BOX)
-	modReference:AddCallback(ModCallbacks.MC_USE_ITEM,
+	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, CallbackPriority.EARLY,
 		function() movingBoxCheck = false end, CollectibleType.COLLECTIBLE_MOVING_BOX)
 	if REPENTOGON then
-		modReference:AddCallback(ModCallbacks.MC_POST_SLOT_INIT, onEntityInit)
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, CallbackPriority.EARLY, onEntityInit)
 	end
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod
 	modReference.__SAVEMANAGER_UNIQUE_KEY = ("%s-%s"):format(Random(), Random())
-	modReference:AddCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, function(_, modToUnload)
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, CallbackPriority.EARLY, function(_, modToUnload)
 		if modToUnload.__SAVEMANAGER_UNIQUE_KEY and modToUnload.__SAVEMANAGER_UNIQUE_KEY == modReference.__SAVEMANAGER_UNIQUE_KEY then
 			if loadedData then
 				SaveManager.Save()
 			end
 		end
 	end)
+	if REPENTOGON then
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD, CallbackPriority.EARLY, postSaveSlotLoad)
+	end
 end
+
+--#endregion
 
 --[[
     ########################
     #  SAVE METHODS START  #
     ########################
 ]]
+
+--#region save methods
 
 -- Returns the entire save table, including the file save.
 function SaveManager.GetEntireSave()
@@ -1067,13 +1129,15 @@ end
 
 ---@param ent? Entity | Vector
 ---@param noHourglass false|boolean?
+---@param initDataIfNotPresent? boolean
 ---@param dataDuration DataDuration
 ---@param listIndex? integer
----@return table?
-local function getRespectiveSave(ent, noHourglass, dataDuration, listIndex)
+---@return table
+local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, dataDuration, listIndex)
 	if not SaveManager.Utility.IsDataInitialized()
 		or (ent and not SaveManager.Utility.IsDataTypeAllowed(ent.Type, dataDuration))
 	then
+		---@diagnostic disable-next-line: missing-return-value
 		return
 	end
 	noHourglass = noHourglass or false
@@ -1094,18 +1158,7 @@ local function getRespectiveSave(ent, noHourglass, dataDuration, listIndex)
 	local saveIndex = SaveManager.Utility.GetSaveIndex(ent)
 	local data = saveTable[saveIndex]
 
-	if data == nil then
-		--[[ if i == SaveManager.DefaultSaveKeys.PICKUP and ent then
-		local pickupData = {
-			InitSeed = ent.InitSeed,
-			RerollSave = SaveManager.Utility.PatchSaveFile(targetTable.RerollSave and targetTable.RerollSave[saveIndex] or {}, v),
-			NoRerollSave = SaveManager.Utility.PatchSaveFile(targetTable.NoRerollSave and targetTable.NoRerollSave[saveIndex] or {}, v)
-			}
-			target[saveIndex] = pickupData
-			newData = pickupData.RerollSave
-		else
-			newData = SaveManager.Utility.PatchSaveFile(targetTable[saveIndex] or {}, v)
-		end ]]
+	if data == nil and initDataIfNotPresent then
 		local gameSave = noHourglass and "gameNoBackup" or "game"
 		local defaultKey = SaveManager.Utility.GetDefaultSaveKey(ent)
 		local defaultSave = SaveManager.DEFAULT_SAVE[gameSave][dataDuration][defaultKey] or {}
@@ -1125,33 +1178,64 @@ local function getRespectiveSave(ent, noHourglass, dataDuration, listIndex)
 	return saveTable[saveIndex]
 end
 
----@param ent? Entity | Vector @If an entity is provided, returns an entity specific save within the run save. If a Vector is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param ent? Entity @If an entity is provided, returns an entity specific save within the run save. Otherwise, returns arbitrary data in the save not attached to an entity.
 ---@param noHourglass false|boolean? @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
----@return table? @Can return nil if data has not been loaded, or the manager has not been initialized.
+---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
 function SaveManager.GetRunSave(ent, noHourglass)
-	return getRespectiveSave(ent, noHourglass, "run")
+	return getRespectiveSave(ent, noHourglass, true, "run")
 end
 
----@param ent? Entity | Vector  @If an entity is provided, returns an entity specific save within the floor save. If a Vector is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param ent? Entity @If an entity is provided, returns an entity specific save within the run save. Otherwise, returns arbitrary data in the save not attached to an entity.
 ---@param noHourglass false|boolean? @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
----@return table? @Can return nil if data has not been loaded, or the manager has not been initialized.
+---@return table? @Can return nil if data has not been loaded, the manager has not been initialized, or if no data already existed.
+function SaveManager.TryGetRunSave(ent, noHourglass)
+	return getRespectiveSave(ent, noHourglass, false, "run")
+end
+
+---@param ent? Entity  @If an entity is provided, returns an entity specific save within the floor save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param noHourglass false|boolean? @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
+---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
 function SaveManager.GetFloorSave(ent, noHourglass)
-	return getRespectiveSave(ent, noHourglass, "floor")
+	return getRespectiveSave(ent, noHourglass, true, "floor")
+end
+
+---**NOTE:** If your data is a pickup, it will return a table of {InitSeed: integer, RerollSave: table, NoRerollSave: table}. Please access your data from the Reroll or NoRerollSave. You can create a wrapper of calling either if you wish!
+---@param ent? Entity  @If an entity is provided, returns an entity specific save within the floor save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param noHourglass false|boolean? @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
+---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized, or if no data already existed.
+function SaveManager.TryGetFloorSave(ent, noHourglass)
+	return getRespectiveSave(ent, noHourglass, false, "floor")
+end
+
+---**NOTE:** If your data is a pickup, it will return a table of {InitSeed: integer, RerollSave: table, NoRerollSave: table}. Please access your data from the Reroll or NoRerollSave. You can create a wrapper of calling either if you wish!
+---@param ent? Entity | Vector @If an entity is provided, returns an entity specific save within the roomFloor save, which is a floor-lasting save that has unique data per-room. If a Vector is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param noHourglass false|boolean? @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
+---@param listIndex? integer @Returns data for the provided `listIndex` instead of the index of the current room.
+---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
+function SaveManager.GetRoomFloorSave(ent, noHourglass, listIndex)
+	return getRespectiveSave(ent, noHourglass, true, "roomFloor", listIndex)
 end
 
 ---@param ent? Entity | Vector @If an entity is provided, returns an entity specific save within the roomFloor save, which is a floor-lasting save that has unique data per-room. If a Vector is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
 ---@param noHourglass false|boolean? @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
 ---@param listIndex? integer @Returns data for the provided `listIndex` instead of the index of the current room.
----@return table? @Can return nil if data has not been loaded, or the manager has not been initialized.
-function SaveManager.GetRoomFloorSave(ent, noHourglass, listIndex)
-	return getRespectiveSave(ent, noHourglass, "roomFloor", listIndex)
+---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized, or if no data already existed.
+function SaveManager.TryGetRoomFloorSave(ent, noHourglass, listIndex)
+	return getRespectiveSave(ent, noHourglass, false, "roomFloor", listIndex)
 end
 
 ---@param ent? Entity | Vector  @If an entity is provided, returns an entity specific save within the room save. If a Vector is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
 ---@param noHourglass false|boolean? @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
----@return table? @Can return nil if data has not been loaded, or the manager has not been initialized.
+---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
 function SaveManager.GetRoomSave(ent, noHourglass)
-	return getRespectiveSave(ent, noHourglass, "room")
+	return getRespectiveSave(ent, noHourglass, true, "room")
+end
+
+---@param ent? Entity | Vector  @If an entity is provided, returns an entity specific save within the room save. If a Vector is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param noHourglass false|boolean? @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
+---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized, or if no data already existed.
+function SaveManager.TryGetRoomSave(ent, noHourglass)
+	return getRespectiveSave(ent, noHourglass, false, "room")
 end
 
 ---Returns uniquely-saved data for pickups when outside of the room they're stored in.
@@ -1192,5 +1276,7 @@ function SaveManager.GetPersistentSave()
 
 	return dataCache.file.other
 end
+
+--#endregion
 
 return SaveManager
