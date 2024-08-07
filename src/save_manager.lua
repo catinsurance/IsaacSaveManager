@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 2.1
+SaveManager.VERSION = 2.11
 SaveManager.Utility = {}
 
 -- Used in the DEFAULT_SAVE table as a key with the value being the default save data for a player in this save type.
@@ -586,7 +586,7 @@ function SaveManager.Load(isLuamod)
 		saveData = SaveManager.Utility.PatchSaveFile(data, SaveManager.DEFAULT_SAVE)
 	end
 
-	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_LOAD, dataCache)
+	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_LOAD, dataCache, isLuamod)
 
 	dataCache = saveData
 	hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
@@ -594,7 +594,7 @@ function SaveManager.Load(isLuamod)
 	loadedData = true
 	inRunButNotLoaded = false
 
-	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.POST_DATA_LOAD, dataCache)
+	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.POST_DATA_LOAD, dataCache, isLuamod)
 end
 
 --[[
@@ -1014,9 +1014,11 @@ end
 local function postUpdate()
 	myosotisCheck = false
 	movingBoxCheck = false
-	if REPENTOGON then return end
+end
+
+local function postSlotInitNoRGON()
 	for _, slot in pairs(Isaac.FindByType(EntityType.ENTITY_SLOT)) do
-		if slot.FrameCount == 0 then
+		if slot.FrameCount <= 1 then
 			onEntityInit(_, slot)
 		end
 	end
@@ -1071,13 +1073,22 @@ function SaveManager.Init(mod)
 	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, CallbackPriority.EARLY, SaveManager.HourglassRestore,
 		CollectibleType.COLLECTIBLE_GLOWING_HOUR_GLASS)
 	-- Priority callbacks put in place to load data early and save data late.
+
+	--Global data
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, CallbackPriority.IMPORTANT,
-		function() onEntityInit() end)                                                                                         --Global data
+		function() onEntityInit() end)
+
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, CallbackPriority.IMPORTANT, onEntityInit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_FAMILIAR_INIT, CallbackPriority.IMPORTANT, onEntityInit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_INIT, CallbackPriority.IMPORTANT, onEntityInit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, CallbackPriority.IMPORTANT, onEntityInit)
+	if REPENTOGON then
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, CallbackPriority.IMPORTANT, onEntityInit)
+	else
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, CallbackPriority.IMPORTANT, postSlotInitNoRGON)
+	end
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, CallbackPriority.EARLY, postUpdate)
 
+	--load luamod as early as possible. Each of these render callbacks are in place as they run earlier than player render.
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NPC_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_EFFECT_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
@@ -1087,16 +1098,12 @@ function SaveManager.Init(mod)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_LEVEL, CallbackPriority.EARLY, postNewLevel)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, CallbackPriority.LATE, preGameExit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, CallbackPriority.LATE, postEntityRemove)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, CallbackPriority.EARLY, postUpdate)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, CallbackPriority.EARLY, postPickupUpdate)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, CallbackPriority.EARLY,
 		function() movingBoxCheck = true end,
 		CollectibleType.COLLECTIBLE_MOVING_BOX)
 	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, CallbackPriority.EARLY,
 		function() movingBoxCheck = false end, CollectibleType.COLLECTIBLE_MOVING_BOX)
-	if REPENTOGON then
-		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, CallbackPriority.EARLY, onEntityInit)
-	end
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod
 	modReference.__SAVEMANAGER_UNIQUE_KEY = ("%s-%s"):format(Random(), Random())
