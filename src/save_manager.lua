@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 2.11
+SaveManager.VERSION = 2.12
 SaveManager.Utility = {}
 
 -- Used in the DEFAULT_SAVE table as a key with the value being the default save data for a player in this save type.
@@ -864,11 +864,13 @@ local function onEntityInit(_, ent)
 end
 
 local function detectLuamod()
-	if game:GetFrameCount() > 0 then
-		if not loadedData and inRunButNotLoaded then
-			SaveManager.Load(true)
-			inRunButNotLoaded = false
-			shouldRestoreOnUse = true
+	if (REPENTOGON or game:GetFrameCount() > 0)
+		and not loadedData and inRunButNotLoaded
+	then
+		SaveManager.Load(true)
+		inRunButNotLoaded = false
+		shouldRestoreOnUse = true
+		if game:GetFrameCount() > 0 then
 			currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
 			currentFloor = game:GetLevel():GetStage()
 		end
@@ -1081,29 +1083,29 @@ function SaveManager.Init(mod)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, CallbackPriority.IMPORTANT, onEntityInit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_FAMILIAR_INIT, CallbackPriority.IMPORTANT, onEntityInit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_INIT, CallbackPriority.IMPORTANT, onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, CallbackPriority.EARLY, postUpdate)
 	if REPENTOGON then
 		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, CallbackPriority.IMPORTANT, onEntityInit)
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD, CallbackPriority.IMPORTANT, postSaveSlotLoad)
+		modReference:AddPriorityCallback(ModCallbacks.MC_MENU_INPUT_ACTION, CallbackPriority.IMPORTANT, detectLuamod)
 	else
 		modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, CallbackPriority.IMPORTANT, postSlotInitNoRGON)
 	end
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, CallbackPriority.EARLY, postUpdate)
 
-	--load luamod as early as possible. Each of these render callbacks are in place as they run earlier than player render.
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NPC_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_EFFECT_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_RENDER, CallbackPriority.IMPORTANT, detectLuamod)
+	--load luamod as early as possible.
+	modReference:AddPriorityCallback(ModCallbacks.MC_INPUT_ACTION, CallbackPriority.IMPORTANT, detectLuamod)
 
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_ROOM, CallbackPriority.EARLY, postNewRoom)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_LEVEL, CallbackPriority.EARLY, postNewLevel)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, CallbackPriority.LATE, preGameExit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, CallbackPriority.LATE, postEntityRemove)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, CallbackPriority.EARLY, postPickupUpdate)
-	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, CallbackPriority.EARLY,
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, CallbackPriority.LATE,
 		function() movingBoxCheck = true end,
 		CollectibleType.COLLECTIBLE_MOVING_BOX)
 	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, CallbackPriority.EARLY,
-		function() movingBoxCheck = false end, CollectibleType.COLLECTIBLE_MOVING_BOX)
+		function() movingBoxCheck = false end,
+		CollectibleType.COLLECTIBLE_MOVING_BOX)
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod
 	modReference.__SAVEMANAGER_UNIQUE_KEY = ("%s-%s"):format(Random(), Random())
@@ -1114,9 +1116,6 @@ function SaveManager.Init(mod)
 			end
 		end
 	end)
-	if REPENTOGON then
-		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD, CallbackPriority.EARLY, postSaveSlotLoad)
-	end
 end
 
 --#endregion
