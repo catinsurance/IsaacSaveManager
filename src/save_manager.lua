@@ -273,7 +273,7 @@ function SaveManager.Utility.PatchSaveFile(deposit, source)
 			end
 
 			deposit[i] = SaveManager.Utility.PatchSaveFile(deposit[i] ~= nil and deposit[i] or {}, v)
-		else
+		elseif not deposit[i] then
 			deposit[i] = v
 		end
 		::continue::
