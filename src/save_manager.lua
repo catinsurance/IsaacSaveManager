@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 2.12
+SaveManager.VERSION = 2.13
 SaveManager.Utility = {}
 
 -- Used in the DEFAULT_SAVE table as a key with the value being the default save data for a player in this save type.
@@ -273,7 +273,7 @@ function SaveManager.Utility.PatchSaveFile(deposit, source)
 			end
 
 			deposit[i] = SaveManager.Utility.PatchSaveFile(deposit[i] ~= nil and deposit[i] or {}, v)
-		elseif not deposit[i] then
+		elseif deposit[i] == nil then
 			deposit[i] = v
 		end
 		::continue::
@@ -586,7 +586,7 @@ function SaveManager.Load(isLuamod)
 		saveData = SaveManager.Utility.PatchSaveFile(data, SaveManager.DEFAULT_SAVE)
 	end
 
-	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_LOAD, dataCache, isLuamod)
+	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_LOAD, saveData, isLuamod)
 
 	dataCache = saveData
 	hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
@@ -594,7 +594,7 @@ function SaveManager.Load(isLuamod)
 	loadedData = true
 	inRunButNotLoaded = false
 
-	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.POST_DATA_LOAD, dataCache, isLuamod)
+	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.POST_DATA_LOAD, saveData, isLuamod)
 end
 
 --[[
