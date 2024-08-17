@@ -377,9 +377,15 @@ function SaveManager.Utility.RunCallback(callbackId, ...)
 		return a.Priority < b.Priority
 	end)
 
+	local returnVal
 	for _, callback in ipairs(callbacks) do
-		callback.Function(callback.Mod, ...)
+		returnVal = callback.Function(callback.Mod, ...)
+		if type(returnVal) == "table" then
+			break
+		end
 	end
+	---@cast returnVal table
+	return returnVal
 end
 
 ---@alias DataDuration "run" | "floor" | "roomFloor" | "room"
@@ -544,7 +550,11 @@ function SaveManager.Save()
 		return
 	end
 
-	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_SAVE, finalData)
+	local newFinalData = SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_SAVE, finalData)
+	 SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_LOAD, finalData)
+	if newFinalData then
+		finalData = newFinalData
+	end
 
 	-- validate data
 	local valid, msg = SaveManager.Utility.ValidateForJson(finalData)
@@ -586,7 +596,10 @@ function SaveManager.Load(isLuamod)
 		saveData = SaveManager.Utility.PatchSaveFile(data, SaveManager.DEFAULT_SAVE)
 	end
 
-	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_LOAD, saveData, isLuamod)
+	local newSaveData = SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_LOAD, saveData, isLuamod)
+	if newSaveData then
+		saveData = newSaveData
+	end
 
 	dataCache = saveData
 	hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
