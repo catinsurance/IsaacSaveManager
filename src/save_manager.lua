@@ -1064,7 +1064,7 @@ end
 ---@param saveSlot integer
 ---@param isSlotSelected boolean
 ---@param rawSlot integer
-local function postSaveSlotLoad(saveSlot, isSlotSelected, rawSlot)
+local function postSaveSlotLoad(_, saveSlot, isSlotSelected, rawSlot)
 	if not isSlotSelected then
 		return
 	end
