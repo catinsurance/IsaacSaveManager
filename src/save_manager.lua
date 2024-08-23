@@ -28,7 +28,7 @@ local movingBoxCheck = true
 local currentFloor = 0
 local currentListIndex = 0
 local storePickupDataOnGameExit = false
-local ignoreDataOnGameExit = false
+
 ---@class SaveData
 local dataCache = {}
 ---@class GameSave
@@ -238,7 +238,7 @@ function SaveManager.Utility.GetSaveIndex(ent)
 			name = typeToName[ent.Type]
 		end
 		identifier = GetPtrHash(ent)
-		if ent.Type == EntityType.ENTITY_PLAYER then
+		if ent:ToPlayer() then
 			local player = ent:ToPlayer()
 			---@cast player EntityPlayer
 
@@ -782,7 +782,6 @@ end
 --#region core callbacks
 
 local function onGameLoad()
-	ignoreDataOnGameExit = false
 	storePickupDataOnGameExit = false
 	skipFloorReset = true
 	skipRoomReset = true
@@ -931,7 +930,6 @@ local function preGameExit(_, shouldSave)
 			storePickupData(pickup)
 		end
 	else
-		ignoreDataOnGameExit = true
 		dataCache.game = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 		dataCache.gameNoBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup)
 		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
@@ -953,8 +951,6 @@ local function postEntityRemove(_, ent)
 	then
 		return
 	end
-
-	if ignoreDataOnGameExit then return end
 
 	if (game:IsPaused() and not storePickupDataOnGameExit) or (ent.Type == EntityType.ENTITY_PICKUP and movingBoxCheck) then
 		if ent.Type == EntityType.ENTITY_PICKUP then
