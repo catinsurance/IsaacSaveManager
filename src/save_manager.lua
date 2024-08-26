@@ -60,7 +60,7 @@ SaveManager.Utility.JsonIncompatibilityType = {
 ---@enum SaveManager.Utility.CustomCallback
 SaveManager.Utility.CustomCallback = {
 	PRE_DATA_SAVE = "ISAACSAVEMANAGER_PRE_DATA_SAVE",
-	POST_DATA_SAVE = "ISAACSAVEMANAGER_POST_DATA_LOAD",
+	POST_DATA_SAVE = "ISAACSAVEMANAGER_POST_DATA_SAVE",
 	PRE_DATA_LOAD = "ISAACSAVEMANAGER_PRE_DATA_LOAD",
 	POST_DATA_LOAD = "ISAACSAVEMANAGER_POST_DATA_LOAD",
 }
@@ -552,7 +552,6 @@ function SaveManager.Save()
 	end
 
 	local newFinalData = SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_SAVE, finalData)
-	 SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.PRE_DATA_LOAD, finalData)
 	if newFinalData then
 		finalData = newFinalData
 	end
@@ -878,8 +877,9 @@ local function onEntityInit(_, ent)
 end
 
 local function detectLuamod()
-	if (REPENTOGON or game:GetFrameCount() > 0)
-		and not loadedData and inRunButNotLoaded
+	if not loadedData and inRunButNotLoaded
+		and ((REPENTOGON and Isaac.GetFrameCount() > 0 and Console.GetHistory()[2] == "Success!")
+		or game:GetFrameCount() > 0)
 	then
 		SaveManager.Load(true)
 		inRunButNotLoaded = false
