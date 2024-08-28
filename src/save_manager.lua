@@ -1104,8 +1104,10 @@ function SaveManager.Init(mod)
 		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, CallbackPriority.IMPORTANT, onEntityInit)
 		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD, CallbackPriority.IMPORTANT, postSaveSlotLoad)
 		modReference:AddPriorityCallback(ModCallbacks.MC_MENU_INPUT_ACTION, CallbackPriority.IMPORTANT, function()
-			dontSaveModData = MenuManager.GetActiveMenu() == MainMenuType.TITLE or
-				MenuManager.GetActiveMenu() == MainMenuType.MODS
+			local success, currentMenu = pcall(MenuManager.GetActiveMenu)
+			if not success then return end
+			dontSaveModData = currentMenu == MainMenuType.TITLE or
+				currentMenu == MainMenuType.MODS
 			detectLuamod()
 		end)
 	else
