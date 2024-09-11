@@ -787,6 +787,8 @@ local function onGameLoad()
 	skipFloorReset = true
 	skipRoomReset = true
 	SaveManager.Load(false)
+	loadedData = true
+	inRunButNotLoaded = false
 end
 
 ---@param ent? Entity
@@ -794,10 +796,9 @@ local function onEntityInit(_, ent)
 	local newGame = game:GetFrameCount() == 0 and not ent
 	local saveIndex = SaveManager.Utility.GetSaveIndex(ent)
 
-	if not loadedData then
+	if not loadedData or inRunButNotLoaded then
 		SaveManager.Utility.SendDebugMessage("Game Init")
 		onGameLoad()
-		loadedData = true
 	end
 	if newGame then
 		dataCache.game = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
@@ -924,6 +925,8 @@ local function resetData(type)
 	end
 end
 
+local saveFileWait = 3
+
 local function preGameExit(_, shouldSave)
 	SaveManager.Utility.SendDebugMessage("pre game exit")
 	if shouldSave then
@@ -938,9 +941,9 @@ local function preGameExit(_, shouldSave)
 		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 	end
 	SaveManager.Save()
-	loadedData = false
 	inRunButNotLoaded = false
 	shouldRestoreOnUse = false
+	saveFileWait = 0
 end
 
 ---@param ent Entity
@@ -1072,7 +1075,11 @@ local function postSaveSlotLoad(_, saveSlot, isSlotSelected, rawSlot)
 	if not isSlotSelected then
 		return
 	end
-	SaveManager.Load(false)
+	if saveFileWait < 3 then
+		saveFileWait = saveFileWait + 1
+	else
+		SaveManager.Load(false)
+	end
 end
 
 --#endregion
@@ -1095,7 +1102,12 @@ function SaveManager.Init(mod)
 
 	--Global data
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, CallbackPriority.IMPORTANT,
-		function() onEntityInit() end)
+		function(_, player)
+			if GetPtrHash(player) == GetPtrHash(Isaac.GetPlayer()) then
+				inRunButNotLoaded = true
+			end
+			onEntityInit()
+		end)
 
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, CallbackPriority.IMPORTANT, onEntityInit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_FAMILIAR_INIT, CallbackPriority.IMPORTANT, onEntityInit)
@@ -1115,6 +1127,7 @@ function SaveManager.Init(mod)
 		modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, CallbackPriority.IMPORTANT, postSlotInitNoRGON)
 	end
 
+	--load luamod as early as possible.
 	--load luamod as early as possible.
 	modReference:AddPriorityCallback(ModCallbacks.MC_INPUT_ACTION, CallbackPriority.IMPORTANT,
 		function()
@@ -1138,9 +1151,10 @@ function SaveManager.Init(mod)
 	modReference.__SAVEMANAGER_UNIQUE_KEY = ("%s-%s"):format(Random(), Random())
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, CallbackPriority.EARLY, function(_, modToUnload)
 		if modToUnload.__SAVEMANAGER_UNIQUE_KEY and modToUnload.__SAVEMANAGER_UNIQUE_KEY == modReference.__SAVEMANAGER_UNIQUE_KEY
-		and loadedData
-		and not dontSaveModData
+			and loadedData
+			and not dontSaveModData
 		then
+			saveFileWait = 0
 			SaveManager.Save()
 		end
 	end)
