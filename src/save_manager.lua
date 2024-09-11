@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 2.13
+SaveManager.VERSION = 2.14
 SaveManager.Utility = {}
 
 -- Used in the DEFAULT_SAVE table as a key with the value being the default save data for a player in this save type.
@@ -902,7 +902,7 @@ local function resetData(type)
 		if type == "floor" then
 			hourglassBackup.pickup.floor = SaveManager.Utility.DeepCopy(dataCache.game.pickup.floor)
 			SaveManager.Save()
-		elseif type == "room" then
+		elseif type == "room" and getListIndex() ~= "509" then
 			--roomFloor data from gotoCommands should be removed, as if it were a room save. It is not persistent.
 			if dataCache.game.roomFloor["509"] then
 				dataCache.game.roomFloor["509"] = nil
@@ -910,6 +910,7 @@ local function resetData(type)
 			if dataCache.gameNoBackup.roomFloor["509"] then
 				dataCache.gameNoBackup.roomFloor["509"] = nil
 			end
+			SaveManager.Utility.SendDebugMessage("Reset roomFloor data on new room")
 		end
 		dataCache.game[type] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game[type])
 		dataCache.gameNoBackup[type] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup[type])
@@ -1205,7 +1206,7 @@ local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, dataDur
 		else
 			saveTable[saveIndex] = SaveManager.Utility.PatchSaveFile({}, defaultSave)
 		end
-		SaveManager.Utility.SendDebugMessage("Created new data for", saveIndex)
+		SaveManager.Utility.SendDebugMessage("Created new", dataDuration, "data for", saveIndex)
 	end
 
 	return saveTable[saveIndex]
