@@ -1058,7 +1058,7 @@ local function postPickupUpdate(_, pickup)
 				data.NoRerollSave = SaveManager.Utility.PatchSaveFile({}, default[dataLength])
 				data.InitSeed = pickup.InitSeed
 				SaveManager.Utility.SendDebugMessage("Detected init seed change in", saveIndex,
-					"! RerollSave has been reloaded")
+					"! NoRerollSave has been reloaded")
 			end
 			::continue::
 		end
