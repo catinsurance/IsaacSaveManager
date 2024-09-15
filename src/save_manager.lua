@@ -1048,23 +1048,33 @@ end
 
 ---@param pickup EntityPickup
 local function postPickupUpdate(_, pickup)
-	local function resetNoRerollData(tab, default)
-		for i = 1, 2 do
-			local dataLength = i == 1 and "roomFloor" or "room"
-			local saveIndex = SaveManager.Utility.GetSaveIndex(pickup)
-			local data = tab[dataLength][saveIndex]
-			if not data then goto continue end
-			if data.InitSeed ~= pickup.InitSeed then
-				data.NoRerollSave = SaveManager.Utility.PatchSaveFile({}, default[dataLength])
-				data.InitSeed = pickup.InitSeed
-				SaveManager.Utility.SendDebugMessage("Detected init seed change in", saveIndex,
-					"! NoRerollSave has been reloaded")
+	local function resetNoRerollData(targetTable, defaultTable)
+		local saveIndex = SaveManager.Utility.GetSaveIndex(pickup)
+		local data = targetTable[saveIndex]
+		if not data then return end
+		if data.InitSeed ~= pickup.InitSeed then
+			if data.InitSeedBackup and pickup.InitSeed == data.InitSeedBackup then
+				local backupSave = data.NoRerollSaveBackup
+				local initSeed = data.InitSeedBackup
+				data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
+				data.InitSeedBackup = data.InitSeed
+				data.NoRerollSave = backupSave
+				data.InitSeed = initSeed
+				SaveManager.Utility.SendDebugMessage("Detected flip in", saveIndex, "! Restored backup NoRerollSave.")
+				return
 			end
-			::continue::
+			data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
+			data.InitSeedBackup = data.InitSeed
+			data.NoRerollSave = SaveManager.Utility.PatchSaveFile({}, defaultTable)
+			data.InitSeed = pickup.InitSeed
+			SaveManager.Utility.SendDebugMessage("Detected init seed change in", saveIndex,
+				"! NoRerollSave has been reset")
 		end
 	end
-	resetNoRerollData(dataCache.game, SaveManager.DEFAULT_SAVE.game)
-	resetNoRerollData(dataCache.gameNoBackup, SaveManager.DEFAULT_SAVE.gameNoBackup)
+	resetNoRerollData(dataCache.game.room, SaveManager.DEFAULT_SAVE.game.room)
+	resetNoRerollData(dataCache.game.roomFloor, SaveManager.DEFAULT_SAVE.game.roomFloor)
+	resetNoRerollData(dataCache.gameNoBackup.room, SaveManager.DEFAULT_SAVE.gameNoBackup.room)
+	resetNoRerollData(dataCache.gameNoBackup.roomFloor, SaveManager.DEFAULT_SAVE.gameNoBackup.roomFloor)
 end
 
 ---With REPENTOGON, allows you to load data whenever you select a save slot.
