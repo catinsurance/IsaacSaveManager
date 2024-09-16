@@ -1048,8 +1048,11 @@ end
 
 ---@param pickup EntityPickup
 local function postPickupUpdate(_, pickup)
-	local function resetNoRerollData(targetTable, defaultTable)
+	local function resetNoRerollData(targetTable, defaultTable, checkIndex)
 		local saveIndex = SaveManager.Utility.GetSaveIndex(pickup)
+		if checkIndex and targetTable[getListIndex()] then
+			targetTable = targetTable[getListIndex()]
+		end
 		local data = targetTable[saveIndex]
 		if not data then return end
 		if data.InitSeed ~= pickup.InitSeed then
@@ -1072,9 +1075,9 @@ local function postPickupUpdate(_, pickup)
 		end
 	end
 	resetNoRerollData(dataCache.game.room, SaveManager.DEFAULT_SAVE.game.room)
-	resetNoRerollData(dataCache.game.roomFloor, SaveManager.DEFAULT_SAVE.game.roomFloor)
+	resetNoRerollData(dataCache.game.roomFloor, SaveManager.DEFAULT_SAVE.game.roomFloor, true)
 	resetNoRerollData(dataCache.gameNoBackup.room, SaveManager.DEFAULT_SAVE.gameNoBackup.room)
-	resetNoRerollData(dataCache.gameNoBackup.roomFloor, SaveManager.DEFAULT_SAVE.gameNoBackup.roomFloor)
+	resetNoRerollData(dataCache.gameNoBackup.roomFloor, SaveManager.DEFAULT_SAVE.gameNoBackup.roomFloor, true)
 end
 
 ---With REPENTOGON, allows you to load data whenever you select a save slot.
