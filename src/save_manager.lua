@@ -785,6 +785,8 @@ local function onGameLoad()
 	SaveManager.Load(false)
 	loadedData = true
 	inRunButNotLoaded = false
+	currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
+	currentFloor = game:GetLevel():GetStage()
 end
 
 ---@param ent? Entity
@@ -1105,7 +1107,8 @@ end
 ---@param mod table @The reference to your mod. This is the table that is returned when you call `RegisterMod`.
 function SaveManager.Init(mod)
 	modReference = mod
-	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY, SaveManager.HourglassRestore,
+	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
+		SaveManager.HourglassRestore,
 		CollectibleType.COLLECTIBLE_GLOWING_HOUR_GLASS)
 	-- Priority callbacks put in place to load data early and save data late.
 
@@ -1118,14 +1121,20 @@ function SaveManager.Init(mod)
 			onEntityInit()
 		end)
 
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_FAMILIAR_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
+		onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_FAMILIAR_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
+		onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
+		onEntityInit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, SaveManager.Utility.CallbackPriority.EARLY, postUpdate)
 	if REPENTOGON then
-		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
-		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD, SaveManager.Utility.CallbackPriority.IMPORTANT, postSaveSlotLoad)
-		modReference:AddPriorityCallback(ModCallbacks.MC_MENU_INPUT_ACTION, SaveManager.Utility.CallbackPriority.IMPORTANT, function()
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
+			onEntityInit)
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD,
+			SaveManager.Utility.CallbackPriority.IMPORTANT, postSaveSlotLoad)
+		modReference:AddPriorityCallback(ModCallbacks.MC_MENU_INPUT_ACTION,
+			SaveManager.Utility.CallbackPriority.IMPORTANT, function()
 			local success, currentMenu = pcall(MenuManager.GetActiveMenu)
 			if not success then return end
 			dontSaveModData = currentMenu == MainMenuType.TITLE or
@@ -1133,7 +1142,8 @@ function SaveManager.Init(mod)
 			detectLuamod()
 		end)
 	else
-		modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, SaveManager.Utility.CallbackPriority.IMPORTANT, postSlotInitNoRGON)
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, SaveManager.Utility.CallbackPriority.IMPORTANT,
+			postSlotInitNoRGON)
 	end
 
 	--load luamod as early as possible.
@@ -1144,29 +1154,41 @@ function SaveManager.Init(mod)
 			detectLuamod()
 		end)
 
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_ROOM, SaveManager.Utility.CallbackPriority.EARLY, postNewRoom)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_LEVEL, SaveManager.Utility.CallbackPriority.EARLY, postNewLevel)
-	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, SaveManager.Utility.CallbackPriority.LATE, preGameExit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE, postEntityRemove)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, SaveManager.Utility.CallbackPriority.EARLY, postPickupUpdate)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_ROOM, SaveManager.Utility.CallbackPriority.EARLY,
+		postNewRoom)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_LEVEL, SaveManager.Utility.CallbackPriority.EARLY,
+		postNewLevel)
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, SaveManager.Utility.CallbackPriority.LATE,
+		preGameExit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE,
+		postEntityRemove)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, SaveManager.Utility.CallbackPriority.EARLY,
+		postPickupUpdate)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
-		function() movingBoxCheck = true checkCurrentIndex = true end,
+		function()
+			movingBoxCheck = true
+			checkCurrentIndex = true
+		end,
 		CollectibleType.COLLECTIBLE_MOVING_BOX)
 	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
-		function() movingBoxCheck = false checkCurrentIndex = false end,
+		function()
+			movingBoxCheck = false
+			checkCurrentIndex = false
+		end,
 		CollectibleType.COLLECTIBLE_MOVING_BOX)
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod
 	modReference.__SAVEMANAGER_UNIQUE_KEY = ("%s-%s"):format(Random(), Random())
-	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, SaveManager.Utility.CallbackPriority.EARLY, function(_, modToUnload)
-		if modToUnload.__SAVEMANAGER_UNIQUE_KEY and modToUnload.__SAVEMANAGER_UNIQUE_KEY == modReference.__SAVEMANAGER_UNIQUE_KEY
-			and loadedData
-			and not dontSaveModData
-		then
-			saveFileWait = 0
-			SaveManager.Save()
-		end
-	end)
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, SaveManager.Utility.CallbackPriority.EARLY,
+		function(_, modToUnload)
+			if modToUnload.__SAVEMANAGER_UNIQUE_KEY and modToUnload.__SAVEMANAGER_UNIQUE_KEY == modReference.__SAVEMANAGER_UNIQUE_KEY
+				and loadedData
+				and not dontSaveModData
+			then
+				saveFileWait = 0
+				SaveManager.Save()
+			end
+		end)
 end
 
 --#endregion
