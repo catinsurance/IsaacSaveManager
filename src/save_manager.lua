@@ -28,7 +28,7 @@ local myosotisCheck = false
 local movingBoxCheck = true
 local currentFloor = 0
 local currentListIndex = 0
-local storePickupDataOnGameExit = false
+local checkCurrentIndex = false
 local inRunButNotLoaded = true
 
 ---@class SaveData
@@ -719,12 +719,12 @@ end
 ---When leaving the room, stores floor-persistent pickup data.
 ---@param pickup EntityPickup
 local function storePickupData(pickup)
-	local roomPickupData = getRoomFloorPickupData(pickup, not storePickupDataOnGameExit)
+	local roomPickupData = getRoomFloorPickupData(pickup, not checkCurrentIndex)
 	if not roomPickupData then
 		SaveManager.Utility.SendDebugMessage("Failed to find room data for", SaveManager.Utility.GetSaveIndex(pickup))
 		return
 	end
-	local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup, not storePickupDataOnGameExit)
+	local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup, not checkCurrentIndex)
 	local pickupData = dataCache.game.pickup
 	if movingBoxCheck then
 		pickupData.movingBox[pickupIndex] = roomPickupData
@@ -779,7 +779,7 @@ end
 --#region core callbacks
 
 local function onGameLoad()
-	storePickupDataOnGameExit = false
+	checkCurrentIndex = false
 	skipFloorReset = true
 	skipRoomReset = true
 	SaveManager.Load(false)
@@ -926,7 +926,7 @@ local saveFileWait = 3
 local function preGameExit(_, shouldSave)
 	SaveManager.Utility.SendDebugMessage("pre game exit")
 	if shouldSave then
-		storePickupDataOnGameExit = true
+		checkCurrentIndex = true
 		for _, pickup in pairs(Isaac.FindByType(EntityType.ENTITY_PICKUP)) do
 			---@cast pickup EntityPickup
 			storePickupData(pickup)
@@ -954,7 +954,7 @@ local function postEntityRemove(_, ent)
 		return
 	end
 
-	if (game:IsPaused() and not storePickupDataOnGameExit) or (ent.Type == EntityType.ENTITY_PICKUP and movingBoxCheck) then
+	if (game:IsPaused() and not checkCurrentIndex) or (ent.Type == EntityType.ENTITY_PICKUP and movingBoxCheck) then
 		if ent.Type == EntityType.ENTITY_PICKUP then
 			---@cast ent EntityPickup
 			storePickupData(ent)
@@ -1150,10 +1150,10 @@ function SaveManager.Init(mod)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE, postEntityRemove)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, SaveManager.Utility.CallbackPriority.EARLY, postPickupUpdate)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
-		function() movingBoxCheck = true end,
+		function() movingBoxCheck = true checkCurrentIndex = true end,
 		CollectibleType.COLLECTIBLE_MOVING_BOX)
 	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
-		function() movingBoxCheck = false end,
+		function() movingBoxCheck = false checkCurrentIndex = false end,
 		CollectibleType.COLLECTIBLE_MOVING_BOX)
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod
