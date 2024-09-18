@@ -25,7 +25,7 @@ local skipFloorReset = false
 local skipRoomReset = false
 local shouldRestoreOnUse = true
 local myosotisCheck = false
-local movingBoxCheck = true
+local movingBoxCheck = false
 local currentFloor = 0
 local currentListIndex = 0
 local checkCurrentIndex = false
@@ -552,6 +552,10 @@ function SaveManager.Save()
 	if newFinalData then
 		finalData = newFinalData
 	end
+	if game:GetFrameCount() > 0 then
+		finalData.__SAVEMANAGER_LIST_INDEX = currentListIndex
+		finalData.__SAVEMANAGER_STAGE = currentFloor
+	end
 
 	-- validate data
 	local valid, msg = SaveManager.Utility.ValidateForJson(finalData)
@@ -599,6 +603,13 @@ function SaveManager.Load(isLuamod)
 		saveData = newSaveData
 	end
 
+	if game:GetFrameCount() > 0 then
+		currentListIndex = saveData.__SAVEMANAGER_LIST_INDEX
+		currentFloor = saveData.__SAVEMANAGER_STAGE
+		saveData.__SAVEMANAGER_LIST_INDEX = nil
+		saveData.__SAVEMANAGER_STAGE = nil
+	end
+
 	dataCache = saveData
 	hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
 
@@ -620,8 +631,7 @@ local function getListIndex(checkLastIndex)
 	if level:GetStage() ~= currentFloor then
 		return tostring(currentListIndex)
 	else
-		return tostring(checkLastIndex and game:GetLevel():GetLastRoomDesc().ListIndex or
-			game:GetLevel():GetCurrentRoomDesc().ListIndex)
+		return tostring(checkLastIndex and game:GetLevel():GetLastRoomDesc().ListIndex or currentListIndex)
 	end
 end
 
@@ -705,6 +715,7 @@ end
 function SaveManager.Utility.GetPickupData(pickup)
 	local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup)
 	local pickupData = getStoredPickupData("floor", pickupIndex)
+
 	if not pickupData and game:GetLevel():IsAscent() then
 		SaveManager.Utility.SendDebugMessage("Was unable to locate floor-saved room data. Searching Ascent...")
 		if game:GetRoom():GetType() == RoomType.ROOM_BOSS then
@@ -737,6 +748,7 @@ local function storePickupData(pickup)
 		end
 		pickupData.floor[pickupIndex] = roomPickupData
 		SaveManager.Utility.SendDebugMessage("Stored pickup data for", pickupIndex)
+		dataCache.game.roomFloor[getListIndex(not checkCurrentIndex)][SaveManager.Utility.GetSaveIndex(pickup)] = nil
 	end
 end
 
@@ -779,14 +791,12 @@ end
 --#region core callbacks
 
 local function onGameLoad()
-	checkCurrentIndex = false
+	checkCurrentIndex = true
 	skipFloorReset = true
 	skipRoomReset = true
 	SaveManager.Load(false)
 	loadedData = true
 	inRunButNotLoaded = false
-	currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
-	currentFloor = game:GetLevel():GetStage()
 end
 
 ---@param ent? Entity
@@ -868,6 +878,7 @@ local function onEntityInit(_, ent)
 	if ent and ent.Type == EntityType.ENTITY_PICKUP then
 		local pickup = ent:ToPickup()
 		---@cast pickup EntityPickup
+
 		populatePickupData(pickup)
 		if getRoomFloorPickupData(pickup) then
 			return --Don't populate default data if it has previous room data already!
@@ -927,6 +938,7 @@ local saveFileWait = 3
 
 local function preGameExit(_, shouldSave)
 	SaveManager.Utility.SendDebugMessage("pre game exit")
+
 	if shouldSave then
 		checkCurrentIndex = true
 		for _, pickup in pairs(Isaac.FindByType(EntityType.ENTITY_PICKUP)) do
@@ -983,7 +995,14 @@ end
 --A safety precaution to make sure data for entities that no longer exist are removed from room data.
 local function removeLeftoverEntityData()
 	SaveManager.Utility.SendDebugMessage("leftover ent data check")
-	local function removeLeftoverData(tab)
+	local function removeLeftoverData(tab, isRoomFloor)
+		if isRoomFloor then
+			if tab[getListIndex(true)] then
+				tab = tab[getListIndex(true)]
+			else
+				return
+			end
+		end
 		for key, _ in pairs(tab) do
 			local separation = string.find(key, "_") --Will stop global-type data and pickup data from being checked
 			if not separation then goto continue end
@@ -1009,6 +1028,8 @@ local function removeLeftoverEntityData()
 	end
 	removeLeftoverData(dataCache.game.room)
 	removeLeftoverData(dataCache.gameNoBackup.room)
+	removeLeftoverData(dataCache.game.roomFloor, true)
+	removeLeftoverData(dataCache.gameNoBackup.roomFloor, true)
 end
 
 local function postNewRoom()
@@ -1016,6 +1037,7 @@ local function postNewRoom()
 	currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
 	resetData("room")
 	removeLeftoverEntityData()
+	checkCurrentIndex = false
 end
 
 local function postNewLevel()
@@ -1121,32 +1143,27 @@ function SaveManager.Init(mod)
 			onEntityInit()
 		end)
 
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
-		onEntityInit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_FAMILIAR_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
-		onEntityInit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
-		onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_FAMILIAR_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, SaveManager.Utility.CallbackPriority.EARLY, postUpdate)
+
 	if REPENTOGON then
-		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
-			onEntityInit)
-		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD,
-			SaveManager.Utility.CallbackPriority.IMPORTANT, postSaveSlotLoad)
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD, SaveManager.Utility.CallbackPriority.IMPORTANT, postSaveSlotLoad)
 		modReference:AddPriorityCallback(ModCallbacks.MC_MENU_INPUT_ACTION,
 			SaveManager.Utility.CallbackPriority.IMPORTANT, function()
-			local success, currentMenu = pcall(MenuManager.GetActiveMenu)
-			if not success then return end
-			dontSaveModData = currentMenu == MainMenuType.TITLE or
-				currentMenu == MainMenuType.MODS
-			detectLuamod()
-		end)
+				local success, currentMenu = pcall(MenuManager.GetActiveMenu)
+				if not success then return end
+				dontSaveModData = currentMenu == MainMenuType.TITLE or
+					currentMenu == MainMenuType.MODS
+				detectLuamod()
+			end)
 	else
 		modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, SaveManager.Utility.CallbackPriority.IMPORTANT,
 			postSlotInitNoRGON)
 	end
 
-	--load luamod as early as possible.
 	--load luamod as early as possible.
 	modReference:AddPriorityCallback(ModCallbacks.MC_INPUT_ACTION, SaveManager.Utility.CallbackPriority.IMPORTANT,
 		function()
@@ -1154,22 +1171,17 @@ function SaveManager.Init(mod)
 			detectLuamod()
 		end)
 
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_ROOM, SaveManager.Utility.CallbackPriority.EARLY,
-		postNewRoom)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_LEVEL, SaveManager.Utility.CallbackPriority.EARLY,
-		postNewLevel)
-	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, SaveManager.Utility.CallbackPriority.LATE,
-		preGameExit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE,
-		postEntityRemove)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, SaveManager.Utility.CallbackPriority.EARLY,
-		postPickupUpdate)
-	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
-		function()
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_ROOM, SaveManager.Utility.CallbackPriority.EARLY, postNewRoom)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_LEVEL, SaveManager.Utility.CallbackPriority.EARLY, postNewLevel)
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, SaveManager.Utility.CallbackPriority.LATE, preGameExit)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE, postEntityRemove)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, SaveManager.Utility.CallbackPriority.EARLY, postPickupUpdate)
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE, function()
 			movingBoxCheck = true
 			checkCurrentIndex = true
 		end,
 		CollectibleType.COLLECTIBLE_MOVING_BOX)
+
 	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
 		function()
 			movingBoxCheck = false
