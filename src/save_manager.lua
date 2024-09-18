@@ -628,10 +628,11 @@ end
 ---@param checkLastIndex? boolean
 local function getListIndex(checkLastIndex)
 	local level = game:GetLevel()
-	if level:GetStage() ~= currentFloor then
+	--Myosotis for checking last floor's ListIndex or for checking the pre-saved ListIndex on continue
+	if level:GetStage() ~= currentFloor or Isaac.GetPlayer().FrameCount == 0 then
 		return tostring(currentListIndex)
 	else
-		return tostring(checkLastIndex and game:GetLevel():GetLastRoomDesc().ListIndex or currentListIndex)
+		return tostring(checkLastIndex and game:GetLevel():GetLastRoomDesc().ListIndex or game:GetLevel():GetCurrentRoomDesc().ListIndex)
 	end
 end
 
@@ -791,7 +792,7 @@ end
 --#region core callbacks
 
 local function onGameLoad()
-	checkCurrentIndex = true
+	checkCurrentIndex = false
 	skipFloorReset = true
 	skipRoomReset = true
 	SaveManager.Load(false)
@@ -1037,7 +1038,6 @@ local function postNewRoom()
 	currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
 	resetData("room")
 	removeLeftoverEntityData()
-	checkCurrentIndex = false
 end
 
 local function postNewLevel()
