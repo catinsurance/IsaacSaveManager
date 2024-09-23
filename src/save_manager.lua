@@ -422,7 +422,7 @@ function SaveManager.Utility.IsDataInitialized(ignoreWarning)
 		end
 		return false
 	end
-	
+
 	if not loadedData then
 		if ignoreWarning then
 			SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.DATA_NOT_LOADED)
@@ -785,7 +785,8 @@ local function populatePickupData(pickup)
 			dataCache.game.roomFloor[listIndex] = {}
 		end
 		dataCache.game.roomFloor[listIndex][roomFloorIndex] = pickupData
-		SaveManager.Utility.SendDebugMessage("Successfully populated pickup data of index", roomFloorIndex, "in ListIndex",
+		SaveManager.Utility.SendDebugMessage("Successfully populated pickup data of index", roomFloorIndex,
+			"in ListIndex",
 			listIndex)
 		if movingBoxCheck then
 			dataCache.game.pickup.movingBox[pickupIndex] = nil
@@ -903,14 +904,40 @@ local function onEntityInit(_, ent)
 	if ent and ent.Type == EntityType.ENTITY_PICKUP then
 		local pickup = ent:ToPickup()
 		---@cast pickup EntityPickup
-
 		populatePickupData(pickup)
-		if getRoomFloorPickupData(pickup) then
-			return --Don't populate default data if it has previous room data already!
-		end
 	end
 	implementSaveKeys(SaveManager.DEFAULT_SAVE.game, dataCache.game)
 	implementSaveKeys(SaveManager.DEFAULT_SAVE.gameNoBackup, dataCache.gameNoBackup)
+
+	local function resetNoRerollData(targetTable, defaultTable, checkIndex)
+		if checkIndex and targetTable[getListIndex()] then
+			targetTable = targetTable[getListIndex()]
+		end
+		local data = targetTable[saveIndex]
+		if not data then return end
+		if ent and data.InitSeed ~= ent.InitSeed then
+			if data.InitSeedBackup and ent.InitSeed == data.InitSeedBackup then
+				local backupSave = data.NoRerollSaveBackup
+				local initSeed = data.InitSeedBackup
+				data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
+				data.InitSeedBackup = data.InitSeed
+				data.NoRerollSave = backupSave
+				data.InitSeed = initSeed
+				SaveManager.Utility.SendDebugMessage("Detected flip in", saveIndex, "! Restored backup NoRerollSave.")
+				return
+			end
+			data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
+			data.InitSeedBackup = data.InitSeed
+			data.NoRerollSave = SaveManager.Utility.PatchSaveFile({}, defaultTable)
+			data.InitSeed = ent.InitSeed
+			SaveManager.Utility.SendDebugMessage("Detected init seed change in", saveIndex,
+				"! NoRerollSave has been reset")
+		end
+	end
+	resetNoRerollData(dataCache.game.room, SaveManager.DEFAULT_SAVE.game.room)
+	resetNoRerollData(dataCache.game.roomFloor, SaveManager.DEFAULT_SAVE.game.roomFloor, true)
+	resetNoRerollData(dataCache.gameNoBackup.room, SaveManager.DEFAULT_SAVE.gameNoBackup.room)
+	resetNoRerollData(dataCache.gameNoBackup.roomFloor, SaveManager.DEFAULT_SAVE.gameNoBackup.roomFloor, true)
 end
 
 local function detectLuamod()
@@ -964,7 +991,7 @@ local function resetData(saveType)
 		end
 		dataCache.game[saveType] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game[saveType])
 		dataCache.gameNoBackup[saveType] = SaveManager.Utility.PatchSaveFile({},
-		SaveManager.DEFAULT_SAVE.gameNoBackup[saveType])
+			SaveManager.DEFAULT_SAVE.gameNoBackup[saveType])
 		for index, data in pairs(transferBossAscentData) do
 			if not dataCache.game.roomFloor[listIndex] then
 				dataCache.game.roomFloor[listIndex] = {}
@@ -1116,40 +1143,6 @@ local function postSlotInitNoRGON()
 	end
 end
 
----@param pickup EntityPickup
-local function postPickupUpdate(_, pickup)
-	local function resetNoRerollData(targetTable, defaultTable, checkIndex)
-		local saveIndex = SaveManager.Utility.GetSaveIndex(pickup)
-		if checkIndex and targetTable[getListIndex()] then
-			targetTable = targetTable[getListIndex()]
-		end
-		local data = targetTable[saveIndex]
-		if not data then return end
-		if data.InitSeed ~= pickup.InitSeed then
-			if data.InitSeedBackup and pickup.InitSeed == data.InitSeedBackup then
-				local backupSave = data.NoRerollSaveBackup
-				local initSeed = data.InitSeedBackup
-				data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
-				data.InitSeedBackup = data.InitSeed
-				data.NoRerollSave = backupSave
-				data.InitSeed = initSeed
-				SaveManager.Utility.SendDebugMessage("Detected flip in", saveIndex, "! Restored backup NoRerollSave.")
-				return
-			end
-			data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
-			data.InitSeedBackup = data.InitSeed
-			data.NoRerollSave = SaveManager.Utility.PatchSaveFile({}, defaultTable)
-			data.InitSeed = pickup.InitSeed
-			SaveManager.Utility.SendDebugMessage("Detected init seed change in", saveIndex,
-				"! NoRerollSave has been reset")
-		end
-	end
-	resetNoRerollData(dataCache.game.room, SaveManager.DEFAULT_SAVE.game.room)
-	resetNoRerollData(dataCache.game.roomFloor, SaveManager.DEFAULT_SAVE.game.roomFloor, true)
-	resetNoRerollData(dataCache.gameNoBackup.room, SaveManager.DEFAULT_SAVE.gameNoBackup.room)
-	resetNoRerollData(dataCache.gameNoBackup.roomFloor, SaveManager.DEFAULT_SAVE.gameNoBackup.roomFloor, true)
-end
-
 ---With REPENTOGON, allows you to load data whenever you select a save slot.
 ---@param isSlotSelected boolean
 local function postSaveSlotLoad(_, _, isSlotSelected, _)
@@ -1232,8 +1225,6 @@ function SaveManager.Init(mod)
 		preGameExit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE,
 		postEntityRemove)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, SaveManager.Utility.CallbackPriority.EARLY,
-		postPickupUpdate)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
 		function()
 			movingBoxCheck = true
