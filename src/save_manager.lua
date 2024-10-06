@@ -613,7 +613,12 @@ function SaveManager.Load(isLuamod)
 	end
 
 	dataCache = saveData
-	hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
+	--Would only fail to exist if you continued a run before creating save data for the first time
+	if dataCache.hourglassBackup then
+		hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
+	else
+		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE)
+	end
 
 	loadedData = true
 	inRunButNotLoaded = false
