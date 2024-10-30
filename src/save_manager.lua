@@ -22,7 +22,7 @@ SaveManager.DefaultSaveKeys = {
 local modReference
 local json = require("json")
 local loadedData = false
-local dontSaveModData = false
+local dontSaveModData = true
 local skipFloorReset = false
 local skipRoomReset = false
 local shouldRestoreOnUse = true
@@ -590,9 +590,8 @@ function SaveManager.Load(isLuamod)
 	end
 
 	if game:GetFrameCount() > 0 then
-		currentListIndex = saveData.__SAVEMANAGER_LIST_INDEX
+		currentListIndex = saveData.__SAVEMANAGER_LIST_INDEX or game:GetLevel():GetCurrentRoomDesc().ListIndex
 		saveData.__SAVEMANAGER_LIST_INDEX = nil
-		saveData.__SAVEMANAGER_STAGE = nil
 	end
 
 	dataCache = saveData
@@ -798,6 +797,7 @@ local function onGameLoad()
 	SaveManager.Load(false)
 	loadedData = true
 	inRunButNotLoaded = false
+	dontSaveModData = false
 end
 
 ---@param ent? Entity
@@ -922,16 +922,16 @@ local function detectLuamod()
 		and (REPENTOGON and (not dontSaveModData and Isaac.GetFrameCount() > 0 and Console.GetHistory()[2] == "Success!")
 			or game:GetFrameCount() > 0)
 	then
-		SaveManager.Load(true)
-		inRunButNotLoaded = false
-		shouldRestoreOnUse = true
 		if game:GetFrameCount() > 0 then
 			currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
 		end
+		SaveManager.Load(true)
+		inRunButNotLoaded = false
+		shouldRestoreOnUse = true
 	end
 end
 
----@param saveType "floor" | "roomFloor" | "room"
+---@param saveType string
 local function resetData(saveType)
 	if (not skipRoomReset and saveType == "room") or (not skipFloorReset and (saveType == "roomFloor" or saveType == "floor")) then
 		local transferBossAscentData = {}
@@ -1006,6 +1006,7 @@ local function preGameExit(_, shouldSave)
 	SaveManager.Save()
 	inRunButNotLoaded = false
 	shouldRestoreOnUse = false
+	dontSaveModData = true
 	saveFileWait = 0
 end
 
@@ -1183,11 +1184,6 @@ function SaveManager.Init(mod)
 	else
 		modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, SaveManager.Utility.CallbackPriority.IMPORTANT,
 			postSlotInitNoRGON)
-	end
-
-	local function doLuamod()
-		dontSaveModData = false
-		detectLuamod()
 	end
 
 	if REPENTOGON then
