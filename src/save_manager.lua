@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 2.15
+SaveManager.VERSION = 2.16
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
@@ -26,6 +26,7 @@ local dontSaveModData = true
 local skipFloorReset = false
 local skipRoomReset = false
 local shouldRestoreOnUse = true
+local usedHourglass = false
 local myosotisCheck = false
 local movingBoxCheck = false
 local currentListIndex = 0
@@ -240,11 +241,12 @@ function SaveManager.Utility.GetSaveIndex(ent)
 		end
 		identifier = GetPtrHash(ent)
 		if ent:ToPlayer() then
-			local player = ent:ToPlayer()
-			---@cast player EntityPlayer
-
-			identifier = table.concat({ player:GetCollectibleRNG(1):GetSeed(), player:GetCollectibleRNG(2):GetSeed() },
-				"_")
+			local player = ent:ToPlayer() ---@cast player EntityPlayer
+			local id = 1
+			if player:GetPlayerType() == PlayerType.PLAYER_LAZARUS2_B then
+				id = 2
+			end
+			identifier = tostring(player:GetCollectibleRNG(id):GetSeed())
 		elseif ent.Type == EntityType.ENTITY_FAMILIAR or ent.Type == EntityType.ENTITY_SLOT then
 			identifier = ent.InitSeed
 		end
@@ -560,11 +562,20 @@ function SaveManager.Save()
 end
 
 -- Restores the game save with the data in the hourglass backup.
-function SaveManager.HourglassRestore()
+function SaveManager.QueueHourglassRestore()
 	if shouldRestoreOnUse then
+		usedHourglass = true
+		skipRoomReset = true
+		SaveManager.Utility.SendDebugMessage("Activated glowing hourglass. Data will be reset on new room.")
+	end
+end
+
+-- Restores the game save with the data in the hourglass backup.
+function SaveManager.TryHourglassRestore()
+	if usedHourglass then
 		local newData = SaveManager.Utility.DeepCopy(hourglassBackup)
 		dataCache.game = SaveManager.Utility.PatchSaveFile(newData, SaveManager.DEFAULT_SAVE.game)
-		skipRoomReset = true
+		usedHourglass = false
 	end
 end
 
@@ -590,7 +601,7 @@ function SaveManager.Load(isLuamod)
 	end
 
 	if game:GetFrameCount() > 0 then
-		currentListIndex = saveData.__SAVEMANAGER_LIST_INDEX or game:GetLevel():GetCurrentRoomDesc().ListIndex
+		currentListIndex = saveData.__SAVEMANAGER_LIST_INDEX or Game():GetLevel():GetCurrentRoomDesc().ListIndex
 		saveData.__SAVEMANAGER_LIST_INDEX = nil
 	end
 
@@ -952,8 +963,7 @@ local function resetData(saveType)
 			bossAscentSaveIndexes = {}
 		end
 		local listIndex = getListIndex()
-		hourglassBackup.run = SaveManager.Utility.DeepCopy(dataCache.game.run)
-		hourglassBackup[saveType] = SaveManager.Utility.DeepCopy(dataCache.game[saveType])
+		hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
 		if saveType == "floor" then
 			hourglassBackup.pickup.floor = SaveManager.Utility.DeepCopy(dataCache.game.pickup.floor)
 			SaveManager.Save()
@@ -1095,6 +1105,7 @@ end
 
 local function postNewRoom()
 	SaveManager.Utility.SendDebugMessage("new room")
+	SaveManager.TryHourglassRestore()
 	currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
 	resetData("room")
 	removeLeftoverEntityData()
@@ -1147,7 +1158,7 @@ end
 function SaveManager.Init(mod)
 	modReference = mod
 	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
-		SaveManager.HourglassRestore,
+		SaveManager.QueueHourglassRestore,
 		CollectibleType.COLLECTIBLE_GLOWING_HOUR_GLASS)
 	-- Priority callbacks put in place to load data early and save data late.
 
