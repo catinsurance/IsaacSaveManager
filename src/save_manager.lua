@@ -1568,4 +1568,120 @@ end
 
 --#endregion
 
+--#region Menu Provider for DSS
+
+local MenuProvider = {}
+
+-- The below functions are all required
+---@function
+function MenuProvider.SaveSaveData()
+	SaveManager.Save()
+end
+
+---@function
+function MenuProvider.GetPaletteSetting()
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	return dssSave and dssSave.MenuPalette or nil
+end
+
+---@function
+function MenuProvider.SavePaletteSetting(var)
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	dssSave.MenuPalette = var
+end
+
+---@function
+function MenuProvider.GetHudOffsetSetting()
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	if not REPENTANCE and dssSave then
+		return dssSave.HudOffset
+	else
+		return Options.HUDOffset * 10
+	end
+end
+
+---@function
+function MenuProvider.SaveHudOffsetSetting(var)
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	if not REPENTANCE then
+		dssSave.HudOffset = var
+	end
+end
+
+---@function
+function MenuProvider.GetGamepadToggleSetting()
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	return dssSave and dssSave.MenuControllerToggle or nil
+end
+
+---@function
+function MenuProvider.SaveGamepadToggleSetting(var)
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	dssSave.MenuControllerToggle = var
+end
+
+---@function
+function MenuProvider.GetMenuKeybindSetting()
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	return dssSave and dssSave.MenuKeybind or nil
+end
+
+---@function
+function MenuProvider.SaveMenuKeybindSetting(var)
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	dssSave.MenuKeybind = var
+end
+
+---@function
+function MenuProvider.GetMenuHintSetting()
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	return dssSave and dssSave.MenuHint or nil
+end
+
+---@function
+function MenuProvider.SaveMenuHintSetting(var)
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	dssSave.MenuHint = var
+end
+
+---@function
+function MenuProvider.GetMenuBuzzerSetting()
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	return dssSave and dssSave.MenuBuzzer or nil
+end
+
+---@function
+function MenuProvider.SaveMenuBuzzerSetting(var)
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	dssSave.MenuBuzzer = var
+end
+
+---@function
+function MenuProvider.GetMenusNotified()
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	return dssSave and dssSave.MenusNotified or nil
+end
+
+---@function
+function MenuProvider.SaveMenusNotified(var)
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	dssSave.MenusNotified = var
+end
+
+---@function
+function MenuProvider.GetMenusPoppedUp()
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	return dssSave and dssSave.MenusPoppedUp or nil
+end
+
+---@function
+function MenuProvider.SaveMenusPoppedUp(var)
+	local dssSave = SaveManager.GetDeadSeaScrollsSave()
+	dssSave.MenusPoppedUp = var
+end
+
+SaveManager.MenuProvider = MenuProvider
+
+--#endregion
+
 return SaveManager
