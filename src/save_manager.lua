@@ -6,7 +6,7 @@ local SaveManager = {}
 SaveManager.VERSION = 3
 SaveManager.Utility = {}
 
-SaveManager.Debug = false
+SaveManager.Debug = true
 
 local mFloor = math.floor
 
@@ -159,13 +159,13 @@ function SaveManager.Utility.CanHavePersistentData(ent)
 		[EntityType.ENTITY_BOMB] = true,
 	}
 	local entType = type(ent) == "number" and ent or ent.Type
-	if type(ent) ~= "number" then
+	if allowedTypes[entType] then
+		return true
+	elseif type(ent) ~= "number" then
 		---@cast ent Entity
 		if ent:ToNPC() and ent:HasEntityFlags(EntityFlag.FLAG_PERSISTENT) then
 			return true
 		end
-	elseif allowedTypes[entType] then
-		return true
 	end
 	return false
 end
@@ -649,46 +649,39 @@ function SaveManager.Load(isLuamod)
 	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.POST_DATA_LOAD, saveData, isLuamod)
 end
 
-local tempListIndexRedirect
-
 local function getListIndex()
 	--Myosotis for checking last floor's ListIndex or for checking the pre-saved ListIndex on continue
 	local listIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
-	if checkLastIndex or (Isaac.GetPlayer() and Isaac.GetPlayer().FrameCount == 0) then
+	local isStartOrContinue = (Isaac.GetPlayer() and Isaac.GetPlayer().FrameCount == 0)
+	if checkLastIndex or isStartOrContinue then
 		listIndex = currentListIndex
 	end
 	local listIndexString = tostring(listIndex)
-	local SPAWN_SEED = game:GetLevel():GetRooms():Get(listIndex).SpawnSeed
-	if tempListIndexRedirect ~= nil
-		and dataCache.game.room[listIndexString]
-		and dataCache.game.room[listIndexString].__ISAACSAVEMANAGER_SPAWN_SEED ~= SPAWN_SEED
-	then
-		for savedListindex, data in pairs(dataCache.game.room) do
-			if data.__ISAACSAVEMANAGER_SPAWN_SEED == SPAWN_SEED then
-				tempListIndexRedirect = {
-					[listIndex] = savedListindex
-				}
-				break
+	if game:GetFrameCount() == 0 then return listIndexString end
+
+	if not isStartOrContinue then
+		--Curse of the Maze can swap rooms around
+		local SPAWN_SEED = game:GetLevel():GetRooms():Get(listIndex).SpawnSeed
+		if dataCache.game.room[listIndexString]
+			and dataCache.game.room[listIndexString].__SAVEMANAGER_SPAWN_SEED ~= SPAWN_SEED
+		then
+			SaveManager.Utility.DebugLog("Spawn seed doesn't match! Locating correct room..")
+			for savedListindex, data in pairs(dataCache.game.room) do
+				if data.__SAVEMANAGER_SPAWN_SEED == SPAWN_SEED then
+					SaveManager.Utility.DebugLog("Spawn seed located! Swapping room data..")
+					local currentData = dataCache.game.room[listIndexString]
+					local currentPickupData = dataCache.game.pickupRoom[listIndexString]
+					dataCache.game.room[listIndexString] = data
+					dataCache.game.pickupRoom[listIndexString] = dataCache.game.pickupRoom[savedListindex]
+					dataCache.game.room[savedListindex] = currentData
+					dataCache.game.pickupRoom[savedListindex] = currentPickupData
+					listIndexString = savedListindex
+					break
+				end
 			end
 		end
 	end
-	if tempListIndexRedirect then
-		return tempListIndexRedirect[listIndex]
-	else
-		return listIndexString
-	end
-end
-
----@param pickup EntityPickup
----@return table?
-local function getRoomPickupData(pickup)
-	local listIndex = getListIndex()
-	local listIndexData = dataCache.game.room[listIndex]
-
-	if not listIndexData then
-		return
-	end
-	return listIndexData[SaveManager.Utility.GetSaveIndex(pickup)]
+	return listIndexString
 end
 
 ---Gets a unique string as an identifier for the pickup when outside of the room it's present in.
@@ -734,8 +727,13 @@ end
 function SaveManager.Utility.GetPickupData(pickup)
 	local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup)
 	local listIndex = getListIndex()
-	local pickupDataRoot = myosotisCheck and hourglassBackup.pickupRoom or dataCache.game.pickupRoom
-	local pickupData = pickupDataRoot[listIndex] and pickupDataRoot[listIndex][pickupIndex]
+	local pickupDataRoot = dataCache.game.pickupRoom[listIndex]
+	if myosotisCheck then
+		pickupDataRoot = hourglassBackup.pickupRoom[listIndex]
+	elseif movingBoxCheck then
+		pickupDataRoot = dataCache.game.movingBox
+	end
+	local pickupData = pickupDataRoot and pickupDataRoot[pickupIndex]
 
 	if not pickupData and game:GetLevel():IsAscent() then
 		SaveManager.Utility.DebugLog("Was unable to locate floor-saved room data. Searching Ascent...")
@@ -752,11 +750,12 @@ end
 ---When leaving the room, stores floor-persistent pickup data.
 ---@param pickup EntityPickup
 local function storePickupData(pickup)
-	local roomPickupData = getRoomPickupData(pickup)
 	local listIndex = getListIndex()
-	local roomFloorIndex = SaveManager.Utility.GetSaveIndex(pickup)
+	local saveIndex = SaveManager.Utility.GetSaveIndex(pickup)
+	local pickupDataRoot = dataCache.game.room
+	local roomPickupData = pickupDataRoot[listIndex] and pickupDataRoot[listIndex][saveIndex]
 	if not roomPickupData then
-		SaveManager.Utility.DebugLog("Failed to find room data for", roomFloorIndex,
+		SaveManager.Utility.DebugLog("Failed to find room data for", saveIndex,
 			"in ListIndex", listIndex)
 		return
 	end
@@ -773,7 +772,7 @@ local function storePickupData(pickup)
 		end
 		pickupRoomSave[pickupIndex] = roomPickupData
 		SaveManager.Utility.DebugLog("Stored pickup data for", pickupIndex)
-		dataCache.game.room[listIndex][roomFloorIndex] = nil
+		dataCache.game.room[listIndex][saveIndex] = nil
 	end
 end
 
@@ -1051,6 +1050,37 @@ local function preGameExit(_, shouldSave)
 	saveFileWait = 0
 end
 
+local function storeAscentData(ent)
+	local rooms = game:GetLevel():GetRooms()
+	local listIndex = getListIndex()
+	local listIndexNum = tonumber(listIndex)
+	if listIndexNum then
+		local room = rooms:Get(listIndexNum)
+		if room
+			and room.Data.Type == RoomType.ROOM_TREASURE
+			or room.Data.Type == RoomType.ROOM_BOSS
+		then
+			SaveManager.Utility.DebugLog("Treasure/Boss room. Try storing all room data")
+			local roomSaveData = dataCache.game.room[listIndex]
+			local targetTable = room.Data.Type == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
+			if not targetTable[SaveManager.Utility.GetSaveIndex(ent)] then
+				SaveManager.Utility.DebugLog("Ascent data for this entity not initialized. Transferring all room data...")
+				if roomSaveData then
+					for saveIndex, saveData in pairs(roomSaveData) do
+						targetTable[saveIndex] = saveData
+					end
+				end
+				local pickupSaveData = dataCache.game.pickupRoom[listIndex]
+				if pickupSaveData then
+					for saveIndex, saveData in pairs(pickupSaveData) do
+						targetTable[saveIndex] = saveData
+					end
+				end
+			end
+		end
+	end
+end
+
 ---@param ent Entity
 local function postEntityRemove(_, ent)
 	if not dataCache.game
@@ -1069,6 +1099,7 @@ local function postEntityRemove(_, ent)
 			---@cast ent EntityPickup
 			storePickupData(ent)
 		end
+		storeAscentData()
 		return
 	end
 	local saveIndex = SaveManager.Utility.GetSaveIndex(ent)
@@ -1091,18 +1122,19 @@ end
 --A safety precaution to make sure data for entities that no longer exist are removed from room data.
 local function removeLeftoverEntityData()
 	SaveManager.Utility.DebugLog("leftover ent data check")
-	local function removeLeftoverData(tab, isRoomFloor)
-		if isRoomFloor then
-			if tab[getListIndex()] then
-				tab = tab[getListIndex()]
+	local function removeLeftoverData(tab, isRoom)
+		if isRoom then
+			local listIndex = getListIndex()
+			if tab[listIndex] then
+				tab = tab[listIndex]
 			else
 				return
 			end
 		end
 		for key, _ in pairs(tab) do
-			local separation = string.find(key, "_") --Will stop global-type data and pickup data from being checked
-			if not separation then goto continue end
-			local entName = string.sub(key, 1, separation - 1)
+			local specialData = string.find(key, "__") --Will stop global-type data from being checked
+			if key == "GLOBAL" or specialData then goto continue end
+			local entName = string.sub(key, 1, string.find(key, "_") - 1)
 			local nameToType = {
 				PLAYER = EntityType.ENTITY_PLAYER,
 				FAMILIAR = EntityType.ENTITY_FAMILIAR,
@@ -1120,7 +1152,7 @@ local function removeLeftoverEntityData()
 					end
 				end
 			end
-			SaveManager.Utility.DebugLog("Leftover data removed for", key)
+			SaveManager.Utility.DebugLog("Leftover", isRoom and "room" or "temp", "data removed for", key)
 			tab[key] = nil
 			::continue::
 		end
@@ -1134,32 +1166,6 @@ end
 local function postNewRoom()
 	SaveManager.Utility.DebugLog("new room")
 	SaveManager.TryHourglassRestore()
-	tempListIndexRedirect = nil
-	local rooms = game:GetLevel():GetRooms()
-	local listIndex = getListIndex()
-	local listIndexNum = tonumber(listIndex)
-	if listIndexNum then
-		local room = rooms:Get(listIndexNum)
-		if room.Data.Type == RoomType.ROOM_TREASURE
-			or room.Data.Type == RoomType.ROOM_BOSS
-		then
-			local roomSaveData = dataCache.game.room[listIndex]
-			local targetTable = room.Data.Type == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
-			if roomSaveData then
-				for saveIndex, saveData in pairs(roomSaveData) do
-					if not string.find(saveIndex, "PICKUP") then
-						targetTable[saveIndex] = saveData
-					end
-				end
-			end
-			local pickupSaveData = dataCache.game.pickupRoom[listIndex]
-			if pickupSaveData then
-				for saveIndex, saveData in pairs(pickupSaveData) do
-					targetTable[saveIndex] = saveData
-				end
-			end
-		end
-	end
 	currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
 	resetData("temp")
 	removeLeftoverEntityData()
@@ -1362,11 +1368,10 @@ local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, saveTyp
 	if saveType == "room" then
 		if not saveTable[stringListIndex] then
 			SaveManager.Utility.DebugLog("Created index", stringListIndex)
-			saveTable[stringListIndex] = {
-				__ISAACSAVEMANAGER_SPAWN_SEED = numberListIndex and game:GetLevel():GetRooms():Get(numberListIndex).SpawnSeed
-			}
+			saveTable[stringListIndex] = {}
 		end
 		saveTable = saveTable[stringListIndex]
+		saveTable.__SAVEMANAGER_SPAWN_SEED = numberListIndex and game:GetLevel():GetRooms():Get(numberListIndex).SpawnSeed
 	end
 	local saveIndex = SaveManager.Utility.GetSaveIndex(ent)
 	local data = saveTable[saveIndex]
@@ -1457,7 +1462,7 @@ end
 ---@param listIndex? integer @Returns data for the provided `listIndex` instead of the index of the current room.
 ---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized, or if no data already existed.
 function SaveManager.TryGetRerollPickupSave(pickup, noHourglass, listIndex)
-	local pickup_save = SaveManager.TryGetRoomFloorSave(pickup, noHourglass, listIndex)
+	local pickup_save = SaveManager.TryGetRoomSave(pickup, noHourglass, listIndex)
 	if pickup_save then
 		return pickup_save.RerollSave
 	end
@@ -1468,7 +1473,7 @@ end
 ---@param listIndex? integer @Returns data for the provided `listIndex` instead of the index of the current room.
 ---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
 function SaveManager.GetRerollPickupSave(pickup, noHourglass, listIndex)
-	return SaveManager.GetRoomFloorSave(pickup, noHourglass, listIndex).RerollSave
+	return SaveManager.GetRoomSave(pickup, noHourglass, listIndex).RerollSave
 end
 
 ---@param pickup? EntityPickup @If an entity is provided, returns an entity specific save within the roomFloor save, which is a floor-lasting save that has unique data per-room. If a Vector is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
@@ -1476,7 +1481,7 @@ end
 ---@param listIndex? integer @Returns data for the provided `listIndex` instead of the index of the current room.
 ---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized, or if no data already existed.
 function SaveManager.TryGetNoRerollPickupSave(pickup, noHourglass, listIndex)
-	local pickup_save = SaveManager.TryGetRoomFloorSave(pickup, noHourglass, listIndex)
+	local pickup_save = SaveManager.TryGetRoomSave(pickup, noHourglass, listIndex)
 	if pickup_save then
 		return pickup_save.NoRerollSave
 	end
@@ -1487,7 +1492,7 @@ end
 ---@param listIndex? integer @Returns data for the provided `listIndex` instead of the index of the current room.
 ---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
 function SaveManager.GetNoRerollPickupSave(pickup, noHourglass, listIndex)
-	return SaveManager.GetRoomFloorSave(pickup, noHourglass, listIndex).NoRerollSave
+	return SaveManager.GetRoomSave(pickup, noHourglass, listIndex).NoRerollSave
 end
 
 ---Returns uniquely-saved data for pickups when outside of the room they're stored in. Indexed by ListIndex
