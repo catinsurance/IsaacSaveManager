@@ -161,11 +161,6 @@ function SaveManager.Utility.CanHavePersistentData(ent)
 	local entType = type(ent) == "number" and ent or ent.Type
 	if allowedTypes[entType] then
 		return true
-	elseif type(ent) ~= "number" then
-		---@cast ent Entity
-		if ent:ToNPC() and ent:HasEntityFlags(EntityFlag.FLAG_PERSISTENT) then
-			return true
-		end
 	end
 	return false
 end
@@ -663,6 +658,7 @@ local function getListIndex()
 		--Curse of the Maze can swap rooms around
 		local SPAWN_SEED = game:GetLevel():GetRooms():Get(listIndex).SpawnSeed
 		if dataCache.game.room[listIndexString]
+			and dataCache.game.room[listIndexString].__SAVEMANAGER_SPAWN_SEED
 			and dataCache.game.room[listIndexString].__SAVEMANAGER_SPAWN_SEED ~= SPAWN_SEED
 		then
 			SaveManager.Utility.DebugLog("Spawn seed doesn't match! Locating correct room..")
@@ -670,11 +666,13 @@ local function getListIndex()
 				if data.__SAVEMANAGER_SPAWN_SEED == SPAWN_SEED then
 					SaveManager.Utility.DebugLog("Spawn seed located! Swapping room data..")
 					local currentData = dataCache.game.room[listIndexString]
-					local currentPickupData = dataCache.game.pickupRoom[listIndexString]
-					dataCache.game.room[listIndexString] = data
-					dataCache.game.pickupRoom[listIndexString] = dataCache.game.pickupRoom[savedListindex]
 					dataCache.game.room[savedListindex] = currentData
-					dataCache.game.pickupRoom[savedListindex] = currentPickupData
+					dataCache.game.room[listIndexString] = data
+					if dataCache.game.pickupRoom[listIndexString] then
+						local currentPickupData = dataCache.game.pickupRoom[listIndexString]
+						dataCache.game.pickupRoom[listIndexString] = dataCache.game.pickupRoom[savedListindex]
+						dataCache.game.pickupRoom[savedListindex] = currentPickupData
+					end
 					listIndexString = savedListindex
 					break
 				end
@@ -736,7 +734,7 @@ function SaveManager.Utility.GetPickupData(pickup)
 	local pickupData = pickupDataRoot and pickupDataRoot[pickupIndex]
 
 	if not pickupData and game:GetLevel():IsAscent() then
-		SaveManager.Utility.DebugLog("Was unable to locate floor-saved room data. Searching Ascent...")
+		SaveManager.Utility.DebugLog("Was unable to locate pickup room data. Searching Ascent...")
 		local roomType = game:GetRoom():GetType()
 		if roomType == RoomType.ROOM_BOSS then
 			pickupData = dataCache.game.bossRoom[pickupIndex]
@@ -778,6 +776,31 @@ end
 
 local bossAscentSaveIndexes = {}
 
+local function tryPopulateAscentData(listIndex, saveIndex)
+	local roomType = game:GetRoom():GetType()
+
+	SaveManager.Utility.DebugLog("Attempting to locate Ascent save data for", saveIndex)
+	local backupData = roomType == RoomType.ROOM_BOSS and dataCache.game.bossRoom[saveIndex] or dataCache.game.treasureRoom[saveIndex]
+	if backupData then
+		SaveManager.Utility.DebugLog("Found Ascent data for", saveIndex, ". Populating...")
+		local saveData = dataCache.game.room[listIndex]
+		if not saveData then
+			local newData = {}
+			dataCache.game.room[listIndex] = newData
+			saveData = newData
+		end
+		saveData[saveIndex] = backupData
+		if roomType == RoomType.ROOM_BOSS then
+			table.insert(bossAscentSaveIndexes, saveIndex)
+			dataCache.game.bossRoom[saveIndex] = nil
+		elseif roomType == RoomType.ROOM_TREASURE then
+			dataCache.game.treasureRoom[saveIndex] = nil
+		end
+	else
+		SaveManager.Utility.DebugLog("Failed to find Ascent data for", saveIndex)
+	end
+end
+
 ---When re-entering a room, gives back floor-persistent data to valid pickups.
 ---@param pickup EntityPickup
 local function populatePickupData(pickup)
@@ -805,7 +828,7 @@ end
 
 --#endregion
 
---#region core callbacks
+--#region game start/entity init
 
 local function onGameLoad()
 	skipFloorReset = true
@@ -924,30 +947,14 @@ local function onEntityInit(_, ent)
 		local pickup = ent:ToPickup()
 		---@cast pickup EntityPickup
 		populatePickupData(pickup)
-	elseif game:GetLevel():IsAscent() and (not dataCache.game.room[listIndex] or not dataCache.game.room[listIndex][saveIndex]) then
-		SaveManager.Utility.DebugLog("Was unable to locate floor-saved room data. Searching Ascent...")
-		local backupData
-		local roomType = game:GetRoom():GetType()
-		if roomType == RoomType.ROOM_BOSS then
-			backupData = dataCache.game.bossRoom[saveIndex]
-		elseif roomType == RoomType.ROOM_TREASURE then
-			backupData = dataCache.game.treasureRoom[saveIndex]
-		end
-		if backupData then
-			local saveData = dataCache.game.room[listIndex]
-			if not saveData then
-				local newData = {}
-				dataCache.game.room[listIndex] = newData
-				saveData = newData
-			end
-			saveData[saveIndex] = backupData
-			if roomType == RoomType.ROOM_BOSS then
-				dataCache.game.bossRoom[saveIndex] = nil
-			elseif roomType == RoomType.ROOM_TREASURE then
-				dataCache.game.treasureRoom[saveIndex] = nil
-			end
-		end
 	end
+	if game:GetLevel():IsAscent()
+		and game:GetRoom():IsFirstVisit()
+		and (game:GetRoom():GetType() == RoomType.ROOM_BOSS
+		or game:GetRoom():GetType() == RoomType.ROOM_TREASURE
+	) then
+	tryPopulateAscentData(listIndex, saveIndex)
+end
 	implementSaveKeys(SaveManager.DEFAULT_SAVE.game, dataCache.game)
 	implementSaveKeys(SaveManager.DEFAULT_SAVE.gameNoBackup, dataCache.gameNoBackup)
 
@@ -958,6 +965,10 @@ local function onEntityInit(_, ent)
 		resetNoRerollData(dataCache.gameNoBackup.room, SaveManager.DEFAULT_SAVE.gameNoBackup.room, true)
 	end
 end
+
+--#endregion
+
+--#region luamod
 
 local function detectLuamod()
 	if not loadedData and inRunButNotLoaded
@@ -973,6 +984,10 @@ local function detectLuamod()
 	end
 end
 
+--#endregion
+
+--#region reset data
+
 ---@param saveType string
 local function resetData(saveType)
 	if (not skipRoomReset and saveType == "temp") or (not skipFloorReset and (saveType == "room" or saveType == "floor")) then
@@ -980,7 +995,7 @@ local function resetData(saveType)
 		local listIndex = getListIndex()
 		if saveType ~= "temp" and game:GetLevel():IsAscent() then
 			--Search for any data that was recently created on init before floor reset to put back into the room save
-			for _, index in pairs(bossAscentSaveIndexes) do
+			for _, index in ipairs(bossAscentSaveIndexes) do
 				local listIndexSave = dataCache.game.room[listIndex]
 				if listIndexSave and listIndexSave[index] then
 					SaveManager.Utility.DebugLog("Found boss ascent backup data for", index,
@@ -1050,37 +1065,6 @@ local function preGameExit(_, shouldSave)
 	saveFileWait = 0
 end
 
-local function storeAscentData(ent)
-	local rooms = game:GetLevel():GetRooms()
-	local listIndex = getListIndex()
-	local listIndexNum = tonumber(listIndex)
-	if listIndexNum then
-		local room = rooms:Get(listIndexNum)
-		if room
-			and room.Data.Type == RoomType.ROOM_TREASURE
-			or room.Data.Type == RoomType.ROOM_BOSS
-		then
-			SaveManager.Utility.DebugLog("Treasure/Boss room. Try storing all room data")
-			local roomSaveData = dataCache.game.room[listIndex]
-			local targetTable = room.Data.Type == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
-			if not targetTable[SaveManager.Utility.GetSaveIndex(ent)] then
-				SaveManager.Utility.DebugLog("Ascent data for this entity not initialized. Transferring all room data...")
-				if roomSaveData then
-					for saveIndex, saveData in pairs(roomSaveData) do
-						targetTable[saveIndex] = saveData
-					end
-				end
-				local pickupSaveData = dataCache.game.pickupRoom[listIndex]
-				if pickupSaveData then
-					for saveIndex, saveData in pairs(pickupSaveData) do
-						targetTable[saveIndex] = saveData
-					end
-				end
-			end
-		end
-	end
-end
-
 ---@param ent Entity
 local function postEntityRemove(_, ent)
 	if not dataCache.game
@@ -1099,7 +1083,6 @@ local function postEntityRemove(_, ent)
 			---@cast ent EntityPickup
 			storePickupData(ent)
 		end
-		storeAscentData()
 		return
 	end
 	local saveIndex = SaveManager.Utility.GetSaveIndex(ent)
@@ -1163,30 +1146,9 @@ local function removeLeftoverEntityData()
 	removeLeftoverData(dataCache.gameNoBackup.room, true)
 end
 
-local function postNewRoom()
-	SaveManager.Utility.DebugLog("new room")
-	SaveManager.TryHourglassRestore()
-	currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
-	resetData("temp")
-	removeLeftoverEntityData()
-end
+--#endregion
 
-local function postNewLevel()
-	SaveManager.Utility.DebugLog("new level")
-	resetData("room")
-	resetData("floor")
-	for i = 0, game:GetNumPlayers() - 1 do
-		if Isaac.GetPlayer(i) and Isaac.GetPlayer(i):HasTrinket(TrinketType.TRINKET_MYOSOTIS) then
-			myosotisCheck = true
-			break
-		end
-	end
-end
-
-local function postUpdate()
-	myosotisCheck = false
-	movingBoxCheck = false
-end
+--#region core callbacks
 
 local function postSlotInitNoRGON()
 	for _, slot in ipairs(Isaac.FindByType(EntityType.ENTITY_SLOT)) do
@@ -1194,6 +1156,99 @@ local function postSlotInitNoRGON()
 			onEntityInit(_, slot)
 		end
 	end
+end
+
+local function postNewRoom()
+	SaveManager.Utility.DebugLog("new room")
+	SaveManager.TryHourglassRestore()
+	if not REPENTOGON then
+		postSlotInitNoRGON()
+	end
+	local currentRoomDesc = game:GetLevel():GetCurrentRoomDesc()
+	if not game:GetLevel():IsAscent() then
+		if currentListIndex ~= game:GetLevel():GetCurrentRoomDesc().ListIndex then
+			checkLastIndex = true
+		end
+		local listIndex = getListIndex()
+		checkLastIndex = false
+		local roomSaveData = dataCache.game.room[listIndex]
+
+		if roomSaveData
+			and roomSaveData.__SAVEMANAGER_ROOM_TYPE
+			and (roomSaveData.__SAVEMANAGER_ROOM_TYPE == RoomType.ROOM_TREASURE
+			or roomSaveData.__SAVEMANAGER_ROOM_TYPE == RoomType.ROOM_BOSS)
+		then
+			local roomType = roomSaveData.__SAVEMANAGER_ROOM_TYPE
+			SaveManager.Utility.DebugLog("Index", listIndex, "is a Treasure/Boss room. Storing all room data")
+			local targetTable = roomType == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
+			if roomSaveData then
+				for saveIndex, saveData in pairs(roomSaveData) do
+					if not string.find(saveIndex, "__") and not string.find(saveIndex, "PICKUP") then
+						targetTable[saveIndex] = saveData
+					end
+				end
+			end
+			local pickupSaveData = dataCache.game.pickupRoom[listIndex]
+			if pickupSaveData then
+				for saveIndex, saveData in pairs(pickupSaveData) do
+					targetTable[saveIndex] = saveData
+				end
+			end
+		end
+	elseif currentRoomDesc.Data.Type == RoomType.ROOM_TREASURE
+		or currentRoomDesc.Data.Type == RoomType.ROOM_BOSS
+		and game:GetRoom():IsFirstVisit()
+	then
+		SaveManager.Utility.DebugLog("Treasure/Boss Ascent room. Attempting to populate data...")
+		local listIndex = getListIndex()
+		local function searchEntitiesToPopulate(entType)
+			for _, ent in ipairs(Isaac.FindByType(entType)) do
+				local saveIndex = SaveManager.Utility.GetSaveIndex(ent)
+				tryPopulateAscentData(listIndex, saveIndex)
+			end
+		end
+		searchEntitiesToPopulate(EntityType.ENTITY_PLAYER)
+		searchEntitiesToPopulate(EntityType.ENTITY_FAMILIAR)
+		for i = 0, game:GetRoom():GetGridSize() - 1 do
+			local pos = game:GetRoom():GetGridPosition(i)
+			local saveIndex = SaveManager.Utility.GetSaveIndex(pos)
+			tryPopulateAscentData(listIndex, saveIndex)
+		end
+	end
+	currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
+	resetData("temp")
+	removeLeftoverEntityData()
+	local listIndexString = tostring(currentListIndex)
+	local roomSaveData = dataCache.game.room[listIndexString]
+	if not roomSaveData then
+		local newSaveData = {}
+		dataCache.game.room[listIndexString] = newSaveData
+		roomSaveData = newSaveData
+	end
+	roomSaveData.__SAVEMANAGER_SPAWN_SEED = currentRoomDesc.SpawnSeed
+	roomSaveData.__SAVEMANAGER_ROOM_TYPE = currentRoomDesc.Data.Type
+end
+
+local function postNewLevel()
+	SaveManager.Utility.DebugLog("new level")
+	resetData("room")
+	resetData("floor")
+	if REPENTOGON then
+		myosotisCheck = PlayerManager.AnyoneHasTrinket(TrinketType.TRINKET_MYOSOTIS)
+	else
+		for _, ent in ipairs(Isaac.FindByType(EntityType.ENTITY_PLAYER)) do
+			local player = ent:ToPlayer()
+			if player and player:HasTrinket(TrinketType.TRINKET_MYOSOTIS) then
+				myosotisCheck = true
+				break
+			end
+		end
+	end
+end
+
+local function postUpdate()
+	myosotisCheck = false
+	movingBoxCheck = false
 end
 
 ---With REPENTOGON, allows you to load data whenever you select a save slot.
@@ -1371,7 +1426,6 @@ local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, saveTyp
 			saveTable[stringListIndex] = {}
 		end
 		saveTable = saveTable[stringListIndex]
-		saveTable.__SAVEMANAGER_SPAWN_SEED = numberListIndex and game:GetLevel():GetRooms():Get(numberListIndex).SpawnSeed
 	end
 	local saveIndex = SaveManager.Utility.GetSaveIndex(ent)
 	local data = saveTable[saveIndex]
