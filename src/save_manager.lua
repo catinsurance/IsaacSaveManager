@@ -658,7 +658,8 @@ local function getListIndex()
 
 	if not isStartOrContinue then
 		--Curse of the Maze can swap rooms around
-		local SPAWN_SEED = game:GetLevel():GetRooms():Get(listIndex).SpawnSeed
+		local room = game:GetLevel():GetRooms():Get(listIndex)
+		local SPAWN_SEED = room and room.SpawnSeed
 		if dataCache.game.room[listIndexString]
 			and dataCache.game.room[listIndexString].__SAVEMANAGER_SPAWN_SEED
 			and dataCache.game.room[listIndexString].__SAVEMANAGER_SPAWN_SEED ~= SPAWN_SEED
