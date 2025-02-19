@@ -1327,6 +1327,7 @@ end
 local function postUpdate()
 	myosotisCheck = false
 	movingBoxCheck = false
+	dupeTaggedPickups = {}
 end
 
 ---With REPENTOGON, allows you to load data whenever you select a save slot.
