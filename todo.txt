@@ -14,3 +14,5 @@
 - (done) setup MenuProvider for DSS save
 - (done) save data for grid entities done with indexes instead of vectors
 - (done) minimapai support
+- (done) optimize removing leftover data
+- (done) whitelist instead of blacklist for valid data types, meaning instead of checking for functions, it checks for anything that aren't tables, booleans, strings, or integers
