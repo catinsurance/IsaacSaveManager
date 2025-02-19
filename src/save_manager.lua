@@ -1111,6 +1111,7 @@ local function onEntityInit(_, ent)
 		end
 		local data = targetTable[defaultSaveIndex]
 		if data and ent and data.InitSeed and data.InitSeed ~= ent.InitSeed then
+			Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
 			if data.InitSeedBackup and ent.InitSeed == data.InitSeedBackup then
 				local backupSave = data.NoRerollSaveBackup
 				local initSeed = data.InitSeedBackup
@@ -1122,7 +1123,6 @@ local function onEntityInit(_, ent)
 				Isaac.RunCallback(SaveManager.SaveCallbacks.POST_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
 				return
 			end
-			Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
 			data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
 			data.InitSeedBackup = data.InitSeed
 			data.NoRerollSave = SaveManager.Utility.PatchSaveFile({}, defaultTable)
