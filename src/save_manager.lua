@@ -37,6 +37,7 @@ local currentListIndex = 0
 local checkLastIndex = false
 local inRunButNotLoaded = true
 local dupeTaggedPickups = {}
+local allowedAscentRooms = {}
 
 ---@class SaveData
 local dataCache = {}
@@ -905,6 +906,20 @@ local function checkForMyosotis()
 	end
 end
 
+local function checkForAscentValidRooms()
+	allowedAscentRooms = {}
+	local rooms = game:GetLevel():GetRooms()
+	for listIndex = 0, #rooms - 1 do
+		local roomDesc = rooms:Get(listIndex)
+		if (roomDesc.Data.Type ==RoomType.ROOM_TREASURE
+			or roomDesc.Data.Type == RoomType.ROOM_BOSS)
+			and roomDesc:GetDimension() == 0
+		then
+			allowedAscentRooms[listIndex] = true
+		end
+	end
+end
+
 local function storeAndPopulateAscent()
 	local currentRoomDesc = game:GetLevel():GetCurrentRoomDesc()
 	if not game:GetLevel():IsAscent() then
@@ -912,6 +927,7 @@ local function storeAndPopulateAscent()
 			checkLastIndex = true
 		end
 		local listIndex = SaveManager.Utility.GetListIndex()
+		if not allowedAscentRooms[listIndex] then return end
 		local roomSaveData = dataCache.game.room[listIndex]
 
 		if roomSaveData
@@ -1333,6 +1349,7 @@ local function postNewLevel()
 	resetData("room")
 	resetData("floor")
 	checkForMyosotis()
+	checkForAscentValidRooms()
 end
 
 local function postUpdate()
