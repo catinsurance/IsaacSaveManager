@@ -1387,8 +1387,12 @@ end
 
 local function postUpdate()
 	--Shockingly, this triggers for one frame when doing a room transition
-	if not REPENTOGON and game:IsPaused() and not usedHourglass then
-		hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
+	if not REPENTOGON and game:IsPaused() then
+		if usedHourglass then
+			SaveManager.TryHourglassRestore()
+		else
+			hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
+		end
 	end
 	myosotisCheck = false
 	movingBoxCheck = false
@@ -1460,7 +1464,7 @@ function SaveManager.Init(mod)
 			hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
 		end)
 		modReference:AddCallback(ModCallbacks.MC_PRE_GLOWING_HOURGLASS_LOAD, function(_, slot)
-			usedHourglass = true
+			SaveManager.QueueHourglassRestore()
 			SaveManager.TryHourglassRestore()
 		end)
 	else
