@@ -114,7 +114,7 @@ SaveManager.Utility.ValidityState = {
 ---@field floor table @Things in this table are persistent only for the current floor.
 ---@field room table @Things in this table are persistent for the current floor and separates data by array of ListIndex.
 ---@field temp table @Things in this table are persistent only for the current room.
----@field pickupRoom table @Identical to the room save data, but meant specifically for pickups when outside of the room they're stored for
+---@field pickupRoom table @Identical to the room save data, but meant specifically for pickups when outside of the room they're stored for.
 ---@field movingBox table Things in this table are persistent for the entire run, meant for storing pickups that are carried through Moving Box.
 ---@field treasureRoom table @Things in this table are persistent for the entire run, meant for when you re-visit Treasure Room in the Ascent.
 ---@field bossRoom table @Things in this table are persistent for the entire run, meant for when you re-visit Boss Room in the Ascent.
@@ -361,7 +361,9 @@ function SaveManager.Utility.GetAscentSaveIndex()
 		return dataCache.game.room[listIndex] and dataCache.game.room[listIndex].__SAVEMANAGER_ASCENT_INDEX
 	else
 		local level = game:GetLevel()
-		return table.concat({level:GetStage(), level:GetStageType(), level:GetCurrentRoomDesc().Data.Variant}, "_")
+		local stageType = level:GetStageType()
+		stageType = stageType >= StageType.STAGETYPE_REPENTANCE and StageType.STAGETYPE_REPENTANCE or StageType.STAGETYPE_ORIGINAL
+		return table.concat({level:GetStage(), stageType, level:GetCurrentRoomDesc().Data.Variant}, "_")
 	end
 end
 
@@ -842,7 +844,7 @@ local function tryPopulateAscentData(listIndex, saveIndex)
 			dataCache.game.treasureRoom[ascentIndex][saveIndex] = nil
 		end
 	else
-		SaveManager.Utility.DebugLog("Failed to find Ascent data for", saveIndex)
+		SaveManager.Utility.DebugLog("Failed to find Ascent data for", ascentIndex, saveIndex)
 	end
 end
 
@@ -924,13 +926,14 @@ end
 local function checkForAscentValidRooms()
 	allowedAscentRooms = {}
 	local rooms = game:GetLevel():GetRooms()
+
 	for listIndex = 0, #rooms - 1 do
 		local roomDesc = rooms:Get(listIndex)
 		if (roomDesc.Data.Type ==RoomType.ROOM_TREASURE
 			or roomDesc.Data.Type == RoomType.ROOM_BOSS)
 			and roomDesc:GetDimension() == 0
 		then
-			allowedAscentRooms[listIndex] = true
+			allowedAscentRooms[tostring(listIndex)] = true
 		end
 	end
 end
@@ -942,7 +945,11 @@ local function storeAndPopulateAscent()
 			checkLastIndex = true
 		end
 		local listIndex = SaveManager.Utility.GetListIndex()
-		if not allowedAscentRooms[listIndex] then return end
+		if not allowedAscentRooms[listIndex] then
+			SaveManager.Utility.DebugLog("Room at index", listIndex, "is not valid for Ascent")
+			checkLastIndex = false
+			return
+		end
 		local roomSaveData = dataCache.game.room[listIndex]
 
 		if roomSaveData
@@ -971,6 +978,8 @@ local function storeAndPopulateAscent()
 					ascentRoomData[saveIndex] = saveData
 				end
 			end
+		else
+			SaveManager.Utility.DebugLog("RoomType", roomSaveData.__SAVEMANAGER_ROOM_TYPE, "is nil or not a treasure/boss room")
 		end
 		checkLastIndex = false
 	elseif currentRoomDesc.Data.Type == RoomType.ROOM_TREASURE
@@ -995,6 +1004,8 @@ local function storeAndPopulateAscent()
 				end
 			end
 			targetTable[ascentIndex] = nil
+		else
+			SaveManager.Utility.DebugLog("Failed to find Ascent data for index", ascentIndex)
 		end
 	end
 end
