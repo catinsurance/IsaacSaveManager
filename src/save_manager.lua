@@ -907,7 +907,65 @@ end
 
 local function storeAndPopulateAscent()
 	local currentRoomDesc = game:GetLevel():GetCurrentRoomDesc()
+	if not game:GetLevel():IsAscent() then
+		if currentListIndex ~= game:GetLevel():GetCurrentRoomDesc().ListIndex then
+			checkLastIndex = true
+		end
+		local listIndex = SaveManager.Utility.GetListIndex()
+		local roomSaveData = dataCache.game.room[listIndex]
 
+		if roomSaveData
+			and roomSaveData.__SAVEMANAGER_ROOM_TYPE
+			and (roomSaveData.__SAVEMANAGER_ROOM_TYPE == RoomType.ROOM_TREASURE
+			or roomSaveData.__SAVEMANAGER_ROOM_TYPE == RoomType.ROOM_BOSS)
+		then
+			local roomType = roomSaveData.__SAVEMANAGER_ROOM_TYPE
+			SaveManager.Utility.DebugLog("Index", listIndex, "is a Treasure/Boss room. Storing all room data")
+			local targetTable = roomType == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
+			local ascentIndex = SaveManager.Utility.GetAscentSaveIndex()
+			if not targetTable[ascentIndex] then
+				targetTable[ascentIndex] = {}
+			end
+			local ascentRoomData = targetTable[ascentIndex]
+			if roomSaveData then
+				for saveIndex, saveData in pairs(roomSaveData) do
+					if not string.find(saveIndex, "__") and not string.find(saveIndex, "PICKUP") then
+						ascentRoomData[saveIndex] = saveData
+					end
+				end
+			end
+			local pickupSaveData = dataCache.game.pickupRoom[listIndex]
+			if pickupSaveData then
+				for saveIndex, saveData in pairs(pickupSaveData) do
+					ascentRoomData[saveIndex] = saveData
+				end
+			end
+		end
+		checkLastIndex = false
+	elseif currentRoomDesc.Data.Type == RoomType.ROOM_TREASURE
+		or currentRoomDesc.Data.Type == RoomType.ROOM_BOSS
+	then
+		SaveManager.Utility.DebugLog("Treasure/Boss Ascent room detected. Transferring all stored data...")
+		local targetTable = currentRoomDesc.Data.Type == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
+		local ascentIndex = SaveManager.Utility.GetAscentSaveIndex()
+		local ascentRoomData = targetTable[ascentIndex]
+		local listIndex = SaveManager.Utility.GetListIndex()
+		local roomSaveData = dataCache.game.room[listIndex]
+		if not roomSaveData then
+			local newData = {}
+			dataCache.game.room[listIndex] = newData
+			roomSaveData = newData
+		end
+		if ascentRoomData then
+			for saveIndex, saveData in pairs(ascentRoomData) do
+				roomSaveData[saveIndex] = saveData
+				if currentRoomDesc.Data.Type == RoomType.ROOM_BOSS then
+					table.insert(bossAscentSaveIndexes, saveIndex)
+				end
+			end
+			targetTable[ascentIndex] = nil
+		end
+	end
 end
 
 --#endregion
@@ -1254,65 +1312,7 @@ local function postNewRoom()
 		postSlotInitNoRGON()
 	end
 	local currentRoomDesc = game:GetLevel():GetCurrentRoomDesc()
-	if not game:GetLevel():IsAscent() then
-		if currentListIndex ~= game:GetLevel():GetCurrentRoomDesc().ListIndex then
-			checkLastIndex = true
-		end
-		local listIndex = SaveManager.Utility.GetListIndex()
-		local roomSaveData = dataCache.game.room[listIndex]
-
-		if roomSaveData
-			and roomSaveData.__SAVEMANAGER_ROOM_TYPE
-			and (roomSaveData.__SAVEMANAGER_ROOM_TYPE == RoomType.ROOM_TREASURE
-			or roomSaveData.__SAVEMANAGER_ROOM_TYPE == RoomType.ROOM_BOSS)
-		then
-			local roomType = roomSaveData.__SAVEMANAGER_ROOM_TYPE
-			SaveManager.Utility.DebugLog("Index", listIndex, "is a Treasure/Boss room. Storing all room data")
-			local targetTable = roomType == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
-			local ascentIndex = SaveManager.Utility.GetAscentSaveIndex()
-			if not targetTable[ascentIndex] then
-				targetTable[ascentIndex] = {}
-			end
-			local ascentRoomData = targetTable[ascentIndex]
-			if roomSaveData then
-				for saveIndex, saveData in pairs(roomSaveData) do
-					if not string.find(saveIndex, "__") and not string.find(saveIndex, "PICKUP") then
-						ascentRoomData[saveIndex] = saveData
-					end
-				end
-			end
-			local pickupSaveData = dataCache.game.pickupRoom[listIndex]
-			if pickupSaveData then
-				for saveIndex, saveData in pairs(pickupSaveData) do
-					ascentRoomData[saveIndex] = saveData
-				end
-			end
-		end
-		checkLastIndex = false
-	elseif currentRoomDesc.Data.Type == RoomType.ROOM_TREASURE
-		or currentRoomDesc.Data.Type == RoomType.ROOM_BOSS
-	then
-		SaveManager.Utility.DebugLog("Treasure/Boss Ascent room detected. Transferring all stored data...")
-		local targetTable = currentRoomDesc.Data.Type == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
-		local ascentIndex = SaveManager.Utility.GetAscentSaveIndex()
-		local ascentRoomData = targetTable[ascentIndex]
-		local listIndex = SaveManager.Utility.GetListIndex()
-		local roomSaveData = dataCache.game.room[listIndex]
-		if not roomSaveData then
-			local newData = {}
-			dataCache.game.room[listIndex] = newData
-			roomSaveData = newData
-		end
-		if ascentRoomData then
-			for saveIndex, saveData in pairs(ascentRoomData) do
-				roomSaveData[saveIndex] = saveData
-				if currentRoomDesc.Data.Type == RoomType.ROOM_BOSS then
-					table.insert(bossAscentSaveIndexes, saveIndex)
-				end
-			end
-			targetTable[ascentIndex] = nil
-		end
-	end
+	storeAndPopulateAscent()
 	currentListIndex = currentRoomDesc.ListIndex
 	resetData("temp")
 	tryRemoveLeftoverData()
