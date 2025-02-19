@@ -1,36 +1,73 @@
+TestMod = RegisterMod("Yor'ue Mother", 1)
+TestMod.SaveManager = include("src_test.save_manager")
+TestMod.SaveManager.Init(TestMod)
 
--- This file is for testing purposes.
+--Tests room-specific data for players, pickups, and slot machines
 
-local mod = RegisterMod("Test mod121hkj2h1jk2w", 1)
-local saveManager = include("src.save_manager")
-include("unlockapi")
-local modName = "Test mod121hkj2h1jk2w"
-
-UnlockAPI.Library:RegisterPlayer(modName, "Gray Isaac")
-
--- You can edit the default save file either like this or in the save manager itself.
-saveManager.Init(mod)
-
-function mod:PreSave(data)
-    -- notice how this callback is provided the entire save file
-    data.file.unlockApi = UnlockAPI.Library:GetSaveData(modName)
+---@param player EntityPickup
+function TestMod:OnPeffectUpdate(player)
+	local player_room_save = TestMod.SaveManager.GetRoomSave(player)
+	if player_room_save.CountUp then
+		if player_room_save.CountUp < 360 then
+			player_room_save.CountUp = player_room_save.CountUp + 1
+		end
+	else
+		player_room_save.CountUp = 1
+	end
 end
 
-saveManager.AddCallback(saveManager.Utility.CustomCallback.PRE_DATA_SAVE, mod.PreSave)
+TestMod:AddCallback(ModCallbacks.MC_POST_PEFFECT_UPDATE, TestMod.OnPeffectUpdate)
 
-function mod:PostLoad(data)
-    -- notice how this callback is provided the entire save file
-    UnlockAPI.Library:LoadSaveData(data.file.unlockApi)
+function TestMod:OnPlayerRender(player)
+	local player_room_save = TestMod.SaveManager.TryGetRoomSave(player)
+	local renderPos = Isaac.WorldToRenderPosition(player.Position)
+	if player_room_save and player_room_save.CountUp then
+		Isaac.RenderText(player_room_save.CountUp, renderPos.X, renderPos.Y - 30, 1, 1, 1, 1)
+	else
+		Isaac.RenderText("N/A", renderPos.X - 10, renderPos.Y - 30, 1, 1, 1, 1)
+	end
 end
 
-saveManager.AddCallback(saveManager.Utility.CustomCallback.POST_DATA_LOAD, mod.PostLoad)
+TestMod:AddCallback(ModCallbacks.MC_POST_PLAYER_RENDER, TestMod.OnPlayerRender)
 
--- UnlockAPI wipes data on game start, which is later than the initial load, so load it again in that case.
-function mod:PostLoadGameStart()
-    local data = saveManager.GetUnlockAPISave()
-    if data then
-        UnlockAPI.Library:LoadSaveData(data)
-    end
+---@param slot EntitySlot
+function TestMod:OnSlotInit(slot)
+	local slot_save = TestMod.SaveManager.GetRoomSave(slot)
+	slot_save.Encounters = (slot_save.Encounters or 0) + 1
 end
 
-mod:AddCallback(ModCallbacks.MC_POST_GAME_STARTED, mod.PostLoadGameStart)
+TestMod:AddCallback(ModCallbacks.MC_POST_SLOT_INIT, TestMod.OnSlotInit)
+
+---@param slot EntitySlot
+function TestMod:OnSlotRender(slot)
+	local slot_save = TestMod.SaveManager.GetRoomSave(slot)
+	local renderPos = Isaac.WorldToRenderPosition(slot.Position)
+	if slot_save and slot_save.Encounters then
+		Isaac.RenderText(slot_save.Encounters, renderPos.X, renderPos.Y - 50, 1, 1, 1, 1)
+	else
+		Isaac.RenderText("N/A", renderPos.X - 10, renderPos.Y - 50, 1, 1, 1, 1)
+	end
+end
+
+TestMod:AddCallback(ModCallbacks.MC_POST_SLOT_RENDER, TestMod.OnSlotRender)
+
+---@param pickup EntityPickup
+function TestMod:OnPickupInit(pickup)
+	local pickup_save = TestMod.SaveManager.GetRerollPickupSave(pickup)
+	pickup_save.Encounters = (pickup_save.Encounters or 0) + 1
+end
+
+TestMod:AddCallback(ModCallbacks.MC_POST_PICKUP_INIT, TestMod.OnPickupInit)
+
+---@param pickup EntityPickup
+function TestMod:OnPickupRender(pickup)
+	local pickup_save = TestMod.SaveManager.TryGetRerollPickupSave(pickup)
+	local renderPos = Isaac.WorldToRenderPosition(pickup.Position)
+	if pickup_save and pickup_save.Encounters then
+		Isaac.RenderText(pickup_save.Encounters, renderPos.X, renderPos.Y - 30, 1, 1, 1, 1)
+	else
+		Isaac.RenderText("N/A", renderPos.X - 10, renderPos.Y - 30, 1, 1, 1, 1)
+	end
+end
+
+TestMod:AddCallback(ModCallbacks.MC_POST_PICKUP_RENDER, TestMod.OnPickupRender)
