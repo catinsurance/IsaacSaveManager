@@ -1119,6 +1119,7 @@ local function onEntityInit(_, ent)
 				data.NoRerollSave = backupSave
 				data.InitSeed = initSeed
 				SaveManager.Utility.DebugLog("Detected flip in", defaultSaveIndex, "! Restored backup NoRerollSave.")
+				Isaac.RunCallback(SaveManager.SaveCallbacks.POST_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
 				return
 			end
 			Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
