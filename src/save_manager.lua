@@ -67,19 +67,28 @@ SaveManager.Utility.JsonIncompatibilityType = {
 }
 
 ---@enum SaveCallbacks
-SaveManager.Utility.CustomCallback = {
+SaveManager.SaveCallbacks = {
 	PRE_DATA_SAVE = "ISAACSAVEMANAGER_PRE_DATA_SAVE",
 	POST_DATA_SAVE = "ISAACSAVEMANAGER_POST_DATA_SAVE",
 	PRE_DATA_LOAD = "ISAACSAVEMANAGER_PRE_DATA_LOAD",
 	POST_DATA_LOAD = "ISAACSAVEMANAGER_POST_DATA_LOAD",
+	POST_ENTITY_DATA_LOAD = "ISAACSAVEMANAGER_POST_ENTITY_DATA_LOAD",
+	DUPE_PICKUP_DATA_LOAD = "ISAACSAVEMANAGER_DUPE_PICKUP_DATA_LOAD",
+	PRE_PICKUP_INITSEED_MORPH = "ISAACSAVEMANAGER_PRE_PICKUP_INITSEED_MORPH",
+	POST_PICKUP_INITSEED_MORPH = "ISAACSAVEMANAGER_POST_PICKUP_INITSEED_MORPH",
+	PRE_ROOM_DATA_RESET = "ISAACSAVEMANAGER_PRE_ROOM_DATA_RESET",
+	POST_ROOM_DATA_RESET = "ISAACSAVEMANAGER_POST_ROOM_DATA_RESET",
+	PRE_TEMP_DATA_RESET = "ISAACSAVEMANAGER_PRE_TEMP_DATA_RESET",
+	POST_TEMP_DATA_RESET = "ISAACSAVEMANAGER_POST_TEMP_DATA_RESET",
+	PRE_FLOOR_DATA_RESET = "ISAACSAVEMANAGER_PRE_FLOOR_DATA_RESET",
+	POST_FLOOR_DATA_RESET = "ISAACSAVEMANAGER_POST_FLOOR_DATA_RESET",
+	GLOWING_HOURGLASS_RESET = "ISAACSAVEMANAGER_GLOWING_HOURGLASS_RESET"
 }
 
---Identical to CustomCallback enums above, but after initializing the manager, will be suffixed with the unique mod identifier thats used to run callbacks
---With this, you can use Mod:AddCallback(SaveManager.SaveCallbacks.CALLBACK_NAME) which will be more convenient
-SaveManager.SaveCallbacks = {}
+SaveManager.Utility.CustomCallback = {}
 
-for name, value in pairs(SaveManager.Utility.CustomCallback) do
-	SaveManager.SaveCallbacks[name] = value
+for name, value in pairs(SaveManager.SaveCallbacks) do
+	SaveManager.Utility.CustomCallback[name] = value
 end
 
 SaveManager.Utility.CallbackPriority = {
@@ -591,7 +600,7 @@ function SaveManager.IsLoaded()
 end
 
 ---@deprecated
----@param callbackId SaveManager.Utility.CustomCallback
+---@param callbackId SaveCallbacks
 ---@param callback function
 function SaveManager.AddCallback(callbackId, callback)
 	if not modReference then
@@ -668,6 +677,7 @@ function SaveManager.TryHourglassRestore()
 		local newData = SaveManager.Utility.DeepCopy(hourglassBackup)
 		dataCache.game = SaveManager.Utility.PatchSaveFile(newData, SaveManager.DEFAULT_SAVE.game)
 		usedHourglass = false
+		Isaac.RunCallback(SaveManager.SaveCallbacks.GLOWING_HOURGLASS_RESET)
 	end
 end
 
@@ -881,8 +891,13 @@ local function populatePickupData(pickup)
 				local saveIndex2 = SaveManager.Utility.GetSaveIndex(ent)
 				local saveData2 = dataCache.game.room[listIndex][saveIndex2]
 				if saveData2 then
-					SaveManager.Utility.DebugLog("Duplicate data copied!")
-					dataCache.game.room[listIndex][saveIndex] = SaveManager.Utility.DeepCopy(saveData2)
+					local result = Isaac.RunCallback(SaveManager.SaveCallbacks.DUPE_PICKUP_DATA_LOAD, ent, saveData2)
+					if result ~= true then
+						SaveManager.Utility.DebugLog("Duplicate data copied!")
+						dataCache.game.room[listIndex][saveIndex] = SaveManager.Utility.DeepCopy(saveData2)
+					else
+						SaveManager.Utility.DebugLog("Duplicate data prevented from being copied")
+					end
 				end
 				return
 			end
@@ -1095,18 +1110,21 @@ local function onEntityInit(_, ent)
 				SaveManager.Utility.DebugLog("Detected flip in", defaultSaveIndex, "! Restored backup NoRerollSave.")
 				return
 			end
+			Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
 			data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
 			data.InitSeedBackup = data.InitSeed
 			data.NoRerollSave = SaveManager.Utility.PatchSaveFile({}, defaultTable)
 			data.InitSeed = ent.InitSeed
 			SaveManager.Utility.DebugLog("Detected init seed change in", defaultSaveIndex,
 				"! NoRerollSave has been reset")
+			Isaac.RunCallback(SaveManager.SaveCallbacks.POST_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
 		end
 	end
 	if ent and ent.Type == EntityType.ENTITY_PICKUP then
 		local pickup = ent:ToPickup()
 		---@cast pickup EntityPickup
 		populatePickupData(pickup)
+		Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.POST_ENTITY_DATA_LOAD, ent.Type, ent)
 	end
 	if game:GetLevel():IsAscent()
 		and game:GetRoom():IsFirstVisit()
@@ -1114,17 +1132,18 @@ local function onEntityInit(_, ent)
 		or game:GetRoom():GetType() == RoomType.ROOM_TREASURE
 	) then
 		tryPopulateAscentData(listIndex, defaultSaveIndex)
-		if ent and ent:ToPlayer() and ent:ToPlayer():GetSubPlayer() then
-			tryPopulateAscentData(listIndex, altSaveIndex)
-		end
 	end
 	if defaultKey then
 		implementSaveKeys(SaveManager.DEFAULT_SAVE.game, dataCache.game, nil, defaultSaveIndex)
 		implementSaveKeys(SaveManager.DEFAULT_SAVE.gameNoBackup, dataCache.gameNoBackup, nil, defaultSaveIndex)
+		if ent then
+			Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.POST_ENTITY_DATA_LOAD, ent.Type, ent)
+		end
 	end
 	if ent and ent:ToPlayer() and ent:ToPlayer():GetSubPlayer() then
 		implementSaveKeys(SaveManager.DEFAULT_SAVE.game, dataCache.game, nil, altSaveIndex)
 		implementSaveKeys(SaveManager.DEFAULT_SAVE.gameNoBackup, dataCache.gameNoBackup, nil, altSaveIndex)
+		Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.POST_ENTITY_DATA_LOAD, ent.Type, ent)
 	end
 	if ent and ent.Type == EntityType.ENTITY_PICKUP then
 		resetNoRerollData(dataCache.game.temp, SaveManager.DEFAULT_SAVE.game.temp)
@@ -1194,6 +1213,12 @@ end
 ---@param saveType string
 local function resetData(saveType)
 	if (not skipRoomReset and saveType == "temp") or (not skipFloorReset and (saveType == "room" or saveType == "floor")) then
+		local typeToCallback = {
+			temp = {SaveManager.SaveCallbacks.PRE_TEMP_DATA_RESET, SaveManager.SaveCallbacks.POST_TEMP_DATA_RESET},
+			room = {SaveManager.SaveCallbacks.PRE_ROOM_DATA_RESET, SaveManager.SaveCallbacks.POST_ROOM_DATA_RESET},
+			floor = {SaveManager.SaveCallbacks.PRE_FLOOR_DATA_RESET, SaveManager.SaveCallbacks.POST_FLOOR_DATA_RESET}
+		}
+		Isaac.RunCallback(typeToCallback[saveType][1])
 		local transferBossAscentData = {}
 		local listIndex = SaveManager.Utility.GetListIndex()
 		if saveType ~= "temp" and game:GetLevel():IsAscent() then
@@ -1236,6 +1261,7 @@ local function resetData(saveType)
 		end
 		SaveManager.Utility.DebugLog("reset", saveType, "data")
 		shouldRestoreOnUse = true
+		Isaac.RunCallback(typeToCallback[saveType][2])
 	end
 	if saveType == "temp" then
 		skipRoomReset = false
