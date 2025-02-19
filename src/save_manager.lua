@@ -105,7 +105,7 @@ SaveManager.Utility.ValidityState = {
 
 ---@class SaveData
 ---@field game GameSave @Data that is persistent to the run. Starting a new run wipes this data. Affected by Glowing Hourglass.
----@field gameNoBackup GameSave @Data that is persistent to the run. Starting a new run wipes this data. IS NOT AFFECTED by Glowing Hourglass. Only non-entity and player data is populated here.
+---@field gameNoBackup GameSave @Data that is persistent to the run. Starting a new run wipes this data. IS NOT AFFECTED by Glowing Hourglass.
 ---@field hourglassBackup GameSave @A backup of `game` that is not to be edited.
 ---@field file FileSave @Data that is persistent to the save file. This data is never wiped.
 
@@ -321,7 +321,7 @@ function SaveManager.Utility.GetListIndex()
 	local roomDesc = game:GetLevel():GetCurrentRoomDesc()
 	local listIndex = roomDesc.ListIndex
 	local isStartOrContinue = (Isaac.GetPlayer() and Isaac.GetPlayer().FrameCount == 0)
-	local shouldCheckLastIndex = checkLastIndex or isStartOrContinue
+	local shouldCheckLastIndex = checkLastIndex or isStartOrContinue or usedHourglass
 	if shouldCheckLastIndex then
 		listIndex = currentListIndex
 	end
@@ -679,6 +679,7 @@ function SaveManager.TryHourglassRestore()
 		local newData = SaveManager.Utility.DeepCopy(hourglassBackup)
 		dataCache.game = SaveManager.Utility.PatchSaveFile(newData, SaveManager.DEFAULT_SAVE.game)
 		usedHourglass = false
+		SaveManager.Utility.DebugLog("Restored data from Glowing Hourglass")
 		Isaac.RunCallback(SaveManager.SaveCallbacks.GLOWING_HOURGLASS_RESET)
 	end
 end
@@ -838,8 +839,8 @@ local function tryPopulateAscentData(listIndex, saveIndex)
 		end
 		saveData[saveIndex] = ascentSaveData
 		if roomType == RoomType.ROOM_BOSS then
-			table.insert(bossAscentSaveIndexes, saveIndex)
 			dataCache.game.bossRoom[ascentIndex][saveIndex] = nil
+			table.insert(bossAscentSaveIndexes, saveIndex)
 		elseif roomType == RoomType.ROOM_TREASURE then
 			dataCache.game.treasureRoom[ascentIndex][saveIndex] = nil
 		end
@@ -1137,8 +1138,7 @@ local function onEntityInit(_, ent)
 		---@cast pickup EntityPickup
 		populatePickupData(pickup)
 		Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.POST_ENTITY_DATA_LOAD, ent.Type, ent)
-	end
-	if game:GetLevel():IsAscent()
+	elseif game:GetLevel():IsAscent()
 		and game:GetRoom():IsFirstVisit()
 		and (game:GetRoom():GetType() == RoomType.ROOM_BOSS
 		or game:GetRoom():GetType() == RoomType.ROOM_TREASURE
@@ -1248,11 +1248,7 @@ local function resetData(saveType)
 			end
 			bossAscentSaveIndexes = {}
 		end
-		hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
-		if saveType == "floor" and dataCache.game.pickupRoom[listIndex] then
-			hourglassBackup.pickupRoom[listIndex] = SaveManager.Utility.DeepCopy(dataCache.game.pickupRoom[listIndex])
-			SaveManager.Save()
-		elseif saveType == "temp" and listIndex ~= "509" then
+		if saveType == "temp" and listIndex ~= "509" then
 			--room data from goto commands should be removed, as if it were a room save. It is not persistent.
 			if dataCache.game.room["509"] then
 				dataCache.game.room["509"] = nil
@@ -1361,7 +1357,6 @@ end
 
 local function postNewRoom()
 	SaveManager.Utility.DebugLog("new room")
-	SaveManager.TryHourglassRestore()
 	if not REPENTOGON then
 		postSlotInitNoRGON()
 	end
@@ -1391,6 +1386,10 @@ local function postNewLevel()
 end
 
 local function postUpdate()
+	--Shockingly, this triggers for one frame when doing a room transition
+	if not REPENTOGON and game:IsPaused() and not usedHourglass then
+		hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
+	end
 	myosotisCheck = false
 	movingBoxCheck = false
 	dupeTaggedPickups = {}
@@ -1417,10 +1416,7 @@ end
 ---@param mod table @The reference to your mod. This is the table that is returned when you call `RegisterMod`.
 function SaveManager.Init(mod)
 	modReference = mod
-	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
-		SaveManager.QueueHourglassRestore,
-		CollectibleType.COLLECTIBLE_GLOWING_HOUR_GLASS
-	)
+
 	-- Priority callbacks put in place to load data early and save data late.
 
 	--Global data
@@ -1460,7 +1456,18 @@ function SaveManager.Init(mod)
 					currentMenu == MainMenuType.MODS
 				detectLuamod()
 			end)
+		modReference:AddCallback(ModCallbacks.MC_PRE_GLOWING_HOURGLASS_SAVE, function(_, slot)
+			hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
+		end)
+		modReference:AddCallback(ModCallbacks.MC_PRE_GLOWING_HOURGLASS_LOAD, function(_, slot)
+			usedHourglass = true
+			SaveManager.TryHourglassRestore()
+		end)
 	else
+		modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
+			SaveManager.QueueHourglassRestore,
+			CollectibleType.COLLECTIBLE_GLOWING_HOUR_GLASS
+		)
 		modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, SaveManager.Utility.CallbackPriority.IMPORTANT,
 			postSlotInitNoRGON)
 	end
