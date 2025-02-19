@@ -36,6 +36,7 @@ local movingBoxCheck = false
 local currentListIndex = 0
 local checkLastIndex = false
 local inRunButNotLoaded = true
+local dupeTaggedPickups = {}
 
 ---@class SaveData
 local dataCache = {}
@@ -823,10 +824,11 @@ local function populatePickupData(pickup)
 	local pickupData, pickupIndex = SaveManager.Utility.GetPickupData(pickup)
 	local listIndex = getListIndex()
 	local saveIndex = SaveManager.Utility.GetSaveIndex(pickup)
+
+	if dataCache.game.room[listIndex] == nil then
+		dataCache.game.room[listIndex] = {}
+	end
 	if pickupData then
-		if dataCache.game.room[listIndex] == nil then
-			dataCache.game.room[listIndex] = {}
-		end
 		dataCache.game.room[listIndex][saveIndex] = pickupData
 		SaveManager.Utility.DebugLog("Successfully populated pickup data of index", saveIndex,
 			"in ListIndex",
@@ -836,7 +838,37 @@ local function populatePickupData(pickup)
 		elseif dataCache.game.pickupRoom[listIndex] then
 			dataCache.game.pickupRoom[listIndex][pickupIndex] = nil
 		end
+		if game:GetLevel():IsAscent() then
+			local roomType = game:GetRoom():GetType()
+			local spawnSeed = tostring(game:GetLevel():GetCurrentRoomDesc().SpawnSeed)
+			if roomType == RoomType.ROOM_BOSS then
+				dataCache.game.bossRoom[spawnSeed][pickupIndex] = nil
+				table.insert(bossAscentSaveIndexes, saveIndex)
+			elseif roomType == RoomType.ROOM_TREASURE then
+				dataCache.game.treasureRoom[spawnSeed][pickupIndex] = nil
+			end
+		end
 	else
+		local ptrHash1 = GetPtrHash(pickup)
+		dupeTaggedPickups[ptrHash1] = true
+		for _, ent in ipairs(Isaac.FindByType(EntityType.ENTITY_PICKUP, pickup.Variant)) do
+			local ptrHash2 = GetPtrHash(ent)
+
+			if ent.FrameCount > 0
+				and ent.InitSeed == pickup.InitSeed
+				and not dupeTaggedPickups[ptrHash2]
+			then
+				SaveManager.Utility.DebugLog("Identified duplicate InitSeed pickup. Attempting to copy data...")
+				dupeTaggedPickups[ptrHash2] = true
+				local saveIndex2 = SaveManager.Utility.GetSaveIndex(ent)
+				local saveData2 = dataCache.game.room[listIndex][saveIndex2]
+				if saveData2 then
+					SaveManager.Utility.DebugLog("Duplicate data copied!")
+					dataCache.game.room[listIndex][saveIndex] = SaveManager.Utility.DeepCopy(saveData2)
+				end
+				return
+			end
+		end
 		SaveManager.Utility.DebugLog("Failed to find pickup data for index", pickupIndex, "in ListIndex",
 			listIndex)
 	end
