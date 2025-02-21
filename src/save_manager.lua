@@ -1383,6 +1383,7 @@ local function postNewLevel()
 	resetData("floor")
 	checkForMyosotis()
 	checkForAscentValidRooms()
+	SaveManager.Save()
 end
 
 local function postUpdate()
