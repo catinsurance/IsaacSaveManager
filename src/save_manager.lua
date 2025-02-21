@@ -1772,7 +1772,7 @@ end
 ---Please note that this is essentially a normal table with the connotation of being used with Dead Sea Scrolls (DSS).
 ---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized.
 function SaveManager.GetDeadSeaScrollsSave()
-	if not SaveManager.Utility.IsDataInitialized() then
+	if SaveManager.Utility.IsDataInitialized() then
 		return dataCache.file.deadSeaScrolls
  	end
 end
@@ -1788,16 +1788,16 @@ end
 ---Please note that this is essentially a normal table with the connotation of being used to store settings.
 ---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized.
 function SaveManager.GetSettingsSave()
-	if not SaveManager.Utility.IsDataInitialized() then return end
-
-	return dataCache.file.settings
+	if SaveManager.Utility.IsDataInitialized() then
+		return dataCache.file.settings
+	end
 end
 
 ---Gets the "type" save data within the file save. Basically just a table you can put anything it.
 function SaveManager.GetPersistentSave()
-	if not SaveManager.Utility.IsDataInitialized() then return end
-
-	return dataCache.file.other
+	if SaveManager.Utility.IsDataInitialized() then
+		return dataCache.file.other
+	end
 end
 
 --#endregion
