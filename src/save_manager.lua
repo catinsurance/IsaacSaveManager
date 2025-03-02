@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 2.16
+SaveManager.VERSION = 2.2
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
