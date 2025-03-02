@@ -59,10 +59,10 @@ SaveManager.Utility.ErrorMessages = {
 }
 SaveManager.Utility.JsonIncompatibilityType = {
 	SPARSE_ARRAY = "Sparse arrays, or arrays with gaps between indexes, will fill gaps with null when encoded.",
-	INVALID_KEY_TYPE = "Tables that have non-string or non-integer (decimal or non-number) keys cannot be encoded.",
-	MIXED_TABLES = "\"%s\" type \"%s\" found in table with initial type \"%s\": Tables with mixed key types cannot be encoded.",
+	INVALID_KEY_TYPE = "Error at index \"%s\" with value \"%s\", type \"%s\": Tables that have non-string or non-integer (decimal or non-number) keys cannot be encoded.",
+	MIXED_TABLES = "Index \"%s\" with value \"%s\", type \"%s\", found in table with initial type \"%s\": Tables with mixed key types cannot be encoded.",
 	NAN_VALUE = "Tables with invalid numbers (NaN, -inf, inf) cannot be encoded.",
-	INVALID_VALUE = "Error using \"%s\" type \"%s\": Tables containing anything other than strings, numbers, booleans, or other tables cannot be encoded.",
+	INVALID_VALUE = "Error at index \"%s\" with value \"%s\", type \"%s\": Tables containing anything other than strings, numbers, booleans, or other tables cannot be encoded.",
 	CIRCULAR_TABLE = "Tables that contain themselves cannot be encoded.",
 }
 
@@ -418,23 +418,26 @@ function SaveManager.Utility.ValidateForJson(tab)
 
 	-- check for mixed table
 	local indexType
-	for index, val in pairs(tab) do
+	for index, value in pairs(tab) do
 		if not indexType then
 			indexType = type(index)
 		end
 
 		if type(index) ~= indexType then
-			return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.MIXED_TABLES:format(tostring(val), type(val), indexType)
+			local valType = type(value) == "userdata" and getmetatable(value).__type or type(value)
+			return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.MIXED_TABLES:format(index, tostring(value), valType, indexType)
 		end
 
 		if type(index) ~= "string" and type(index) ~= "number" then
+			local valType = type(value) == "userdata" and getmetatable(value).__type or type(value)
 			return SaveManager.Utility.ValidityState.INVALID,
-				SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE
+				SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE:format(index, tostring(value), valType)
 		end
 
 		if type(index) == "number" and mFloor(index) ~= index then
+			local valType = type(value) == "userdata" and getmetatable(value).__type or type(value)
 			return SaveManager.Utility.ValidityState.INVALID,
-				SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE
+				SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE:format(index, tostring(value), valType)
 		end
 	end
 
@@ -447,7 +450,7 @@ function SaveManager.Utility.ValidateForJson(tab)
 		return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.CIRCULAR_TABLE
 	end
 
-	for _, value in pairs(tab) do
+	for index, value in pairs(tab) do
 		-- check for NaN and infinite values
 		-- http://lua-users.org/wiki/InfAndNanComparisons
 		if type(value) == "number" then
@@ -462,7 +465,8 @@ function SaveManager.Utility.ValidateForJson(tab)
 				hasWarning = error
 			end
 		elseif type(value) ~= "string" and type(value) ~= "boolean" then
-			return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.INVALID_VALUE:format(tostring(value), type(value))
+			local valType = type(value) == "userdata" and getmetatable(value).__type or type(value)
+			return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.INVALID_VALUE:format(index, tostring(value), valType)
 		end
 	end
 
