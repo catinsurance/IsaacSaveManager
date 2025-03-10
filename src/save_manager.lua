@@ -536,6 +536,28 @@ function SaveManager.Utility.IsDataInitialized(ignoreWarning)
 	return true
 end
 
+-- Returns the dimension ID the player is currently in.
+-- 0: Normal Dimension
+-- 1: Secondary dimension, used by Downpour mirror dimension and Mines escape sequence
+-- 2: Death Certificate dimension
+---@param room integer? @The room to check. If nil, the current room will be used. Not needed with REPENTOGON enabled
+---@function
+function SaveManager.Utility.GetDimension(room)
+	local level = game:GetLevel()
+	if REPENTOGON then
+		return level:GetDimension()
+	end
+	local roomIndex = room or level:GetCurrentRoomIndex()
+
+	for i = 0, 2 do
+		if GetPtrHash(level:GetRoomByIdx(roomIndex, i)) == GetPtrHash(level:GetRoomByIdx(roomIndex, -1)) then
+			return i
+		end
+	end
+
+	return nil
+end
+
 --#endregion
 
 --#region default data
@@ -935,9 +957,9 @@ local function checkForAscentValidRooms()
 
 	for listIndex = 0, #rooms - 1 do
 		local roomDesc = rooms:Get(listIndex)
-		if (roomDesc.Data.Type ==RoomType.ROOM_TREASURE
+		if (roomDesc.Data.Type == RoomType.ROOM_TREASURE
 			or roomDesc.Data.Type == RoomType.ROOM_BOSS)
-			and roomDesc:GetDimension() == 0
+			and SaveManager.Utility.GetDimension(roomDesc.SafeGridIndex) == 0
 		then
 			allowedAscentRooms[tostring(listIndex)] = true
 		end
