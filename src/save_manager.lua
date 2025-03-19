@@ -910,24 +910,25 @@ local function populatePickupData(pickup)
 			end
 		end
 	else
-		local ptrHash1 = GetPtrHash(pickup)
+		local dupedPickup = pickup
+		local ptrHash1 = GetPtrHash(dupedPickup)
 		dupeTaggedPickups[ptrHash1] = true
-		for _, ent in ipairs(Isaac.FindByType(EntityType.ENTITY_PICKUP, pickup.Variant)) do
-			local ptrHash2 = GetPtrHash(ent)
+		for _, originalPickup in ipairs(Isaac.FindByType(EntityType.ENTITY_PICKUP, dupedPickup.Variant)) do
+			local ptrHash2 = GetPtrHash(originalPickup)
 
-			if ent.FrameCount > 0
-				and ent.InitSeed == pickup.InitSeed
+			if originalPickup.FrameCount > 0
+				and originalPickup.InitSeed == dupedPickup.InitSeed
 				and not dupeTaggedPickups[ptrHash2]
 			then
 				SaveManager.Utility.DebugLog("Identified duplicate InitSeed pickup. Attempting to copy data...")
 				dupeTaggedPickups[ptrHash2] = true
-				local saveIndex2 = SaveManager.Utility.GetSaveIndex(ent)
-				local saveData2 = dataCache.game.room[listIndex][saveIndex2]
-				if saveData2 then
-					local result = Isaac.RunCallback(SaveManager.SaveCallbacks.DUPE_PICKUP_DATA_LOAD, ent, saveData2)
+				local originalSaveIndex = SaveManager.Utility.GetSaveIndex(originalPickup)
+				local originalSaveData = dataCache.game.room[listIndex][originalSaveIndex]
+				if originalSaveData then
+					local result = Isaac.RunCallback(SaveManager.SaveCallbacks.DUPE_PICKUP_DATA_LOAD, originalPickup, dupedPickup, originalSaveData)
 					if result ~= true then
 						SaveManager.Utility.DebugLog("Duplicate data copied!")
-						dataCache.game.room[listIndex][saveIndex] = SaveManager.Utility.DeepCopy(saveData2)
+						dataCache.game.room[listIndex][saveIndex] = SaveManager.Utility.DeepCopy(originalSaveData)
 					else
 						SaveManager.Utility.DebugLog("Duplicate data prevented from being copied")
 					end
