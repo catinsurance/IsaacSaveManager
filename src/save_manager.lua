@@ -925,7 +925,7 @@ local function populatePickupData(pickup)
 				local originalSaveIndex = SaveManager.Utility.GetSaveIndex(originalPickup)
 				local originalSaveData = dataCache.game.room[listIndex][originalSaveIndex]
 				if originalSaveData then
-					local result = Isaac.RunCallback(SaveManager.SaveCallbacks.DUPE_PICKUP_DATA_LOAD, originalPickup, dupedPickup, originalSaveData)
+					local result = Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.DUPE_PICKUP_DATA_LOAD, originalPickup.Variant, originalPickup, dupedPickup, originalSaveData)
 					if result ~= true then
 						SaveManager.Utility.DebugLog("Duplicate data copied!")
 						dataCache.game.room[listIndex][saveIndex] = SaveManager.Utility.DeepCopy(originalSaveData)
@@ -1148,7 +1148,7 @@ local function onEntityInit(_, ent)
 		end
 		local data = targetTable[defaultSaveIndex]
 		if data and ent and data.InitSeed and data.InitSeed ~= ent.InitSeed then
-			Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
+			Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.PRE_PICKUP_INITSEED_MORPH, ent.Variant, ent, data.NoRerollSave)
 			if data.InitSeedBackup and ent.InitSeed == data.InitSeedBackup then
 				local backupSave = data.NoRerollSaveBackup
 				local initSeed = data.InitSeedBackup
@@ -1157,7 +1157,7 @@ local function onEntityInit(_, ent)
 				data.NoRerollSave = backupSave
 				data.InitSeed = initSeed
 				SaveManager.Utility.DebugLog("Detected flip in", defaultSaveIndex, "! Restored backup NoRerollSave.")
-				Isaac.RunCallback(SaveManager.SaveCallbacks.POST_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
+				Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.POST_PICKUP_INITSEED_MORPH, ent.Variant, ent, data.NoRerollSave)
 				return
 			end
 			data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
@@ -1166,7 +1166,7 @@ local function onEntityInit(_, ent)
 			data.InitSeed = ent.InitSeed
 			SaveManager.Utility.DebugLog("Detected init seed change in", defaultSaveIndex,
 				"! NoRerollSave has been reset")
-			Isaac.RunCallback(SaveManager.SaveCallbacks.POST_PICKUP_INITSEED_MORPH, ent, data.NoRerollSave)
+			Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.POST_PICKUP_INITSEED_MORPH, ent.Variant, ent, data.NoRerollSave)
 		end
 	end
 	if ent and ent.Type == EntityType.ENTITY_PICKUP then
