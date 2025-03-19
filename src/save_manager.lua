@@ -361,7 +361,7 @@ function SaveManager.Utility.GetAscentSaveIndex()
 	if checkLastIndex then
 		local listIndex = tostring(currentListIndex)
 		return dataCache.game.room[listIndex] and dataCache.game.room[listIndex].__SAVEMANAGER_ASCENT_INDEX
-	else
+	elseif game:GetRoom():GetType() == RoomType.ROOM_TREASURE or game:GetRoom():GetType() == RoomType.ROOM_BOSS then
 		local level = game:GetLevel()
 		local stageType = level:GetStageType()
 		stageType = stageType >= StageType.STAGETYPE_REPENTANCE and StageType.STAGETYPE_REPENTANCE or StageType.STAGETYPE_ORIGINAL
@@ -806,6 +806,7 @@ function SaveManager.Utility.GetPickupData(pickup)
 		SaveManager.Utility.DebugLog("Was unable to locate pickup room data. Searching Ascent...")
 		local roomType = game:GetRoom():GetType()
 		local ascentIndex = SaveManager.Utility.GetAscentSaveIndex()
+		if not ascentIndex then return pickupData, pickupIndex end
 		if roomType == RoomType.ROOM_BOSS then
 			pickupData = dataCache.game.bossRoom[ascentIndex] and dataCache.game.bossRoom[ascentIndex][pickupIndex]
 		elseif roomType == RoomType.ROOM_TREASURE then
@@ -852,6 +853,7 @@ local function tryPopulateAscentData(listIndex, saveIndex)
 	SaveManager.Utility.DebugLog("Attempting to locate Ascent save data for", saveIndex)
 	local ascentData = roomType == RoomType.ROOM_BOSS and dataCache.game.bossRoom or dataCache.game.treasureRoom
 	local ascentIndex = SaveManager.Utility.GetAscentSaveIndex()
+	if not ascentIndex then return end
 	local ascentRoomData = ascentData[ascentIndex]
 	if not ascentRoomData then return end
 	local ascentSaveData = ascentRoomData[saveIndex]
@@ -899,6 +901,7 @@ local function populatePickupData(pickup)
 		if game:GetLevel():IsAscent() then
 			local roomType = game:GetRoom():GetType()
 			local ascentSaveIndex = SaveManager.Utility.GetAscentSaveIndex()
+			if not ascentSaveIndex then return end
 			if roomType == RoomType.ROOM_BOSS and dataCache.game.bossRoom[ascentSaveIndex] then
 				dataCache.game.bossRoom[ascentSaveIndex][pickupIndex] = nil
 				table.insert(bossAscentSaveIndexes, saveIndex)
@@ -989,6 +992,7 @@ local function storeAndPopulateAscent()
 			SaveManager.Utility.DebugLog("Index", listIndex, "is a Treasure/Boss room. Storing all room data")
 			local targetTable = roomType == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
 			local ascentIndex = SaveManager.Utility.GetAscentSaveIndex()
+			if not ascentIndex then return end
 			if not targetTable[ascentIndex] then
 				targetTable[ascentIndex] = {}
 			end
@@ -1006,7 +1010,7 @@ local function storeAndPopulateAscent()
 					ascentRoomData[saveIndex] = saveData
 				end
 			end
-		elseif roomSaveData then
+		elseif roomSaveData and roomSaveData.__SAVEMANAGER_ROOM_TYPE then
 			SaveManager.Utility.DebugLog("RoomType", roomSaveData.__SAVEMANAGER_ROOM_TYPE, "is not a treasure/boss room")
 		else
 			SaveManager.Utility.DebugLog("Failed locating room save with ListIndex", listIndex)
@@ -1018,7 +1022,9 @@ local function storeAndPopulateAscent()
 		SaveManager.Utility.DebugLog("Treasure/Boss Ascent room detected. Transferring all stored data...")
 		local targetTable = currentRoomDesc.Data.Type == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
 		local ascentIndex = SaveManager.Utility.GetAscentSaveIndex()
+		if not ascentIndex then return end
 		local ascentRoomData = targetTable[ascentIndex]
+		if not ascentRoomData then return end
 		local listIndex = SaveManager.Utility.GetListIndex()
 		local roomSaveData = dataCache.game.room[listIndex]
 		if not roomSaveData then
@@ -1394,13 +1400,7 @@ local function postNewRoom()
 	currentListIndex = currentRoomDesc.ListIndex
 	resetData("temp")
 	tryRemoveLeftoverData()
-	local listIndexString = tostring(currentListIndex)
-	local roomSaveData = dataCache.game.room[listIndexString]
-	if not roomSaveData then
-		local newSaveData = {}
-		dataCache.game.room[listIndexString] = newSaveData
-		roomSaveData = newSaveData
-	end
+	local roomSaveData = SaveManager.GetRoomSave(nil, false, currentListIndex)
 	roomSaveData.__SAVEMANAGER_SPAWN_SEED = currentRoomDesc.SpawnSeed
 	roomSaveData.__SAVEMANAGER_ROOM_TYPE = currentRoomDesc.Data.Type
 	roomSaveData.__SAVEMANAGER_ASCENT_INDEX = SaveManager.Utility.GetAscentSaveIndex()
@@ -1824,6 +1824,7 @@ function SaveManager.GetSettingsSave()
 end
 
 ---Gets the "type" save data within the file save. Basically just a table you can put anything it.
+---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized.
 function SaveManager.GetPersistentSave()
 	if SaveManager.Utility.IsDataInitialized() then
 		return dataCache.file.other
