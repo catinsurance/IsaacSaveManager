@@ -1631,7 +1631,7 @@ end
 ---@return table
 local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, saveType, listIndex, allowSoulSave)
 	if not SaveManager.Utility.IsDataInitialized(not initDataIfNotPresent)
-		or (ent and not SaveManager.Utility.IsDataTypeAllowed(ent.Type, saveType))
+		or (ent and type(ent) == "userdata" and not SaveManager.Utility.IsDataTypeAllowed(ent.Type, saveType))
 	then
 		---@diagnostic disable-next-line: missing-return-value
 		return
