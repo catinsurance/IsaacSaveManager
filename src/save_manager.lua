@@ -1052,7 +1052,9 @@ end
 --#region game start/entity init
 
 local function onGameLoad()
-	skipFloorReset = true
+	if game:GetFrameCount() == 0 then
+		skipFloorReset = true
+	end
 	skipRoomReset = true
 	SaveManager.Load(false)
 	loadedData = true
