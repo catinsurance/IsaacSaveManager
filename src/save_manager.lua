@@ -73,6 +73,7 @@ SaveManager.SaveCallbacks = {
 	PRE_DATA_LOAD = "ISAACSAVEMANAGER_PRE_DATA_LOAD",
 	POST_DATA_LOAD = "ISAACSAVEMANAGER_POST_DATA_LOAD",
 	POST_ENTITY_DATA_LOAD = "ISAACSAVEMANAGER_POST_ENTITY_DATA_LOAD",
+	POST_GLOBAL_DATA_LOAD = "ISAACSAVEMANAGER_POST_GLOBAL_DATA_LOAD",
 	DUPE_PICKUP_DATA_LOAD = "ISAACSAVEMANAGER_DUPE_PICKUP_DATA_LOAD",
 	PRE_PICKUP_INITSEED_MORPH = "ISAACSAVEMANAGER_PRE_PICKUP_INITSEED_MORPH",
 	POST_PICKUP_INITSEED_MORPH = "ISAACSAVEMANAGER_POST_PICKUP_INITSEED_MORPH",
@@ -1201,6 +1202,9 @@ local function onEntityInit(_, ent)
 		resetNoRerollData(dataCache.gameNoBackup.temp, SaveManager.DEFAULT_SAVE.gameNoBackup.temp)
 		resetNoRerollData(dataCache.gameNoBackup.room, SaveManager.DEFAULT_SAVE.gameNoBackup.room, true)
 	end
+	if not ent then
+		Isaac.RunCallback(SaveManager.SaveCallbacks.POST_GLOBAL_DATA_LOAD)
+	end
 end
 
 --#endregion
@@ -1633,6 +1637,7 @@ end
 ---@return table
 local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, saveType, listIndex, allowSoulSave)
 	if not SaveManager.Utility.IsDataInitialized(not initDataIfNotPresent)
+		---@diagnostic disable-next-line: undefined-field
 		or (ent and type(ent) == "userdata" and not SaveManager.Utility.IsDataTypeAllowed(ent.Type, saveType))
 	then
 		---@diagnostic disable-next-line: missing-return-value
