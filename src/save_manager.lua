@@ -8,6 +8,8 @@ SaveManager.Utility = {}
 
 SaveManager.Debug = false
 
+SaveManager.AutoCreatePickupSaves = true
+
 local mFloor = math.floor
 
 -- Used in the DEFAULT_SAVE table as a key with the value being the default save data for a player in this save type.
@@ -1407,6 +1409,7 @@ local function postNewRoom()
 	currentListIndex = currentRoomDesc.ListIndex
 	resetData("temp")
 	tryRemoveLeftoverData()
+	if not SaveManager.AutoCreatePickupSaves then return end
 	local roomSaveData = SaveManager.GetRoomSave(nil, false, currentListIndex)
 	roomSaveData.__SAVEMANAGER_SPAWN_SEED = currentRoomDesc.SpawnSeed
 	roomSaveData.__SAVEMANAGER_ROOM_TYPE = currentRoomDesc.Data.Type
