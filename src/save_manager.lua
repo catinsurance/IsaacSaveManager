@@ -85,7 +85,8 @@ SaveManager.SaveCallbacks = {
 	POST_TEMP_DATA_RESET = "ISAACSAVEMANAGER_POST_TEMP_DATA_RESET",
 	PRE_FLOOR_DATA_RESET = "ISAACSAVEMANAGER_PRE_FLOOR_DATA_RESET",
 	POST_FLOOR_DATA_RESET = "ISAACSAVEMANAGER_POST_FLOOR_DATA_RESET",
-	GLOWING_HOURGLASS_RESET = "ISAACSAVEMANAGER_GLOWING_HOURGLASS_RESET"
+	PRE_GLOWING_HOURGLASS_RESET = "ISAACSAVEMANAGER_PRE_GLOWING_HOURGLASS_RESET",
+	POST_GLOWING_HOURGLASS_RESET = "ISAACSAVEMANAGER_POST_GLOWING_HOURGLASS_RESET"
 }
 
 SaveManager.Utility.CustomCallback = {}
@@ -700,6 +701,7 @@ function SaveManager.QueueHourglassRestore()
 		usedHourglass = true
 		skipRoomReset = true
 		SaveManager.Utility.DebugLog("Activated glowing hourglass. Data will be reset on new room.")
+		Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_GLOWING_HOURGLASS_RESET)
 	end
 end
 
@@ -710,7 +712,7 @@ function SaveManager.TryHourglassRestore()
 		dataCache.game = SaveManager.Utility.PatchSaveFile(newData, SaveManager.DEFAULT_SAVE.game)
 		usedHourglass = false
 		SaveManager.Utility.DebugLog("Restored data from Glowing Hourglass")
-		Isaac.RunCallback(SaveManager.SaveCallbacks.GLOWING_HOURGLASS_RESET)
+		Isaac.RunCallback(SaveManager.SaveCallbacks.POST_GLOWING_HOURGLASS_RESET)
 	end
 end
 
