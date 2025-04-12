@@ -70,13 +70,13 @@ SaveManager.Utility.JsonIncompatibilityType = {
 
 ---@enum SaveCallbacks
 SaveManager.SaveCallbacks = {
-	---(SaveData table): SaveData - Called before validating the save data to store into the mod's save file. This will not run if there happens to be an issue with copying the contents of the save data or its hourglass backup. Modify the existing contents of the table or return a new table to overwrite the provided save data. As this is a copy, it will not affect the save data currently accessible
+	---(SaveData saveData): SaveData - Called before validating the save data to store into the mod's save file. This will not run if there happens to be an issue with copying the contents of the save data or its hourglass backup. Modify the existing contents of the table or return a new table to overwrite the provided save data. As this is a copy, it will not affect the save data currently accessible
 	PRE_DATA_SAVE = "ISAACSAVEMANAGER_PRE_DATA_SAVE",
-	---(SaveData table) - Called after storing save data into the mod's save file
+	---(SaveData saveData) - Called after storing save data into the mod's save file
 	POST_DATA_SAVE = "ISAACSAVEMANAGER_POST_DATA_SAVE",
-	---(SaveData table, boolean isLuamod): SaveData - Called after loading the data from the mod's save file but before loading it into the local save data. Modify the existing contents of the table or return a new table to overwrite the provided save data. `isLuamod` will return `true` if the mod's data was reloaded via the luamod command
+	---(SaveData saveData, boolean isLuamod): SaveData - Called after loading the data from the mod's save file but before loading it into the local save data. Modify the existing contents of the table or return a new table to overwrite the provided save data. `isLuamod` will return `true` if the mod's data was reloaded via the luamod command
 	PRE_DATA_LOAD = "ISAACSAVEMANAGER_PRE_DATA_LOAD",
-	---(saveData table, boolean isLuamod) - Called after loading the mod's save file and storing it in local save data
+	---(SaveData saveData, boolean isLuamod) - Called after loading the mod's save file and storing it in local save data
 	POST_DATA_LOAD = "ISAACSAVEMANAGER_POST_DATA_LOAD",
 	---(Entity entity), Optional Arg: EntityType - Called after finishing initializing an entity
 	POST_ENTITY_DATA_LOAD = "ISAACSAVEMANAGER_POST_ENTITY_DATA_LOAD",
