@@ -1006,12 +1006,8 @@ local function storeAndPopulateAscent()
 		end
 		local roomSaveData = dataCache.game.room[listIndex]
 
-		if roomSaveData
-			and roomSaveData.__SAVEMANAGER_ROOM_TYPE
-			and (roomSaveData.__SAVEMANAGER_ROOM_TYPE == RoomType.ROOM_TREASURE
-			or roomSaveData.__SAVEMANAGER_ROOM_TYPE == RoomType.ROOM_BOSS)
-		then
-			local roomType = roomSaveData.__SAVEMANAGER_ROOM_TYPE
+		if roomSaveData and roomSaveData.__SAVEMANAGER_ASCENT_ROOM_TYPE then
+			local roomType = roomSaveData.__SAVEMANAGER_ASCENT_ROOM_TYPE
 			SaveManager.Utility.DebugLog("Index", listIndex, "is a Treasure/Boss room. Storing all room data")
 			local targetTable = roomType == RoomType.ROOM_TREASURE and dataCache.game.treasureRoom or dataCache.game.bossRoom
 			local ascentIndex = SaveManager.Utility.GetAscentSaveIndex()
@@ -1033,10 +1029,6 @@ local function storeAndPopulateAscent()
 					ascentRoomData[saveIndex] = saveData
 				end
 			end
-		elseif roomSaveData and roomSaveData.__SAVEMANAGER_ROOM_TYPE then
-			SaveManager.Utility.DebugLog("RoomType", roomSaveData.__SAVEMANAGER_ROOM_TYPE, "is not a treasure/boss room")
-		else
-			SaveManager.Utility.DebugLog("Failed locating room save with ListIndex", listIndex)
 		end
 		checkLastIndex = false
 	elseif currentRoomDesc.Data.Type == RoomType.ROOM_TREASURE
@@ -1430,8 +1422,15 @@ local function postNewRoom()
 	tryRemoveLeftoverData()
 	if not SaveManager.AutoCreateRoomSaves then return end
 	local roomSaveData = SaveManager.GetRoomSave(nil, false, currentListIndex)
+	--Always keep track of for Curse of the Maze
 	roomSaveData.__SAVEMANAGER_SPAWN_SEED = currentRoomDesc.SpawnSeed
-	roomSaveData.__SAVEMANAGER_ROOM_TYPE = currentRoomDesc.Data.Type
+	local roomType = currentRoomDesc.Data.Type
+	--For knowing what the last room was after travelling down a floor in the same room
+	--Doesn't matter if its not boss/treasure
+	if roomType == RoomType.ROOM_BOSS or roomType == RoomType.ROOM_TREASURE then
+		roomSaveData.__SAVEMANAGER_ROOM_TYPE = currentRoomDesc.Data.Type
+	end
+	--To know which boss/treasure room is on what floor. Nil if not either room type
 	roomSaveData.__SAVEMANAGER_ASCENT_INDEX = SaveManager.Utility.GetAscentSaveIndex()
 end
 
