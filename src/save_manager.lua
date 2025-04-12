@@ -8,7 +8,7 @@ SaveManager.Utility = {}
 
 SaveManager.Debug = false
 
-SaveManager.AutoCreatePickupSaves = true
+SaveManager.AutoCreateRoomSaves = true
 
 local mFloor = math.floor
 
@@ -70,22 +70,39 @@ SaveManager.Utility.JsonIncompatibilityType = {
 
 ---@enum SaveCallbacks
 SaveManager.SaveCallbacks = {
+	---(SaveData table): SaveData - Called before validating the save data to store into the mod's save file. This will not run if there happens to be an issue with copying the contents of the save data or its hourglass backup. Modify the existing contents of the table or return a new table to overwrite the provided save data. As this is a copy, it will not affect the save data currently accessible
 	PRE_DATA_SAVE = "ISAACSAVEMANAGER_PRE_DATA_SAVE",
+	---(SaveData table) - Called after storing save data into the mod's save file
 	POST_DATA_SAVE = "ISAACSAVEMANAGER_POST_DATA_SAVE",
+	---(SaveData table, boolean isLuamod): SaveData - Called after loading the save data from the mod's save file but before loading it into the current save data. Modify the existing contents of the table or return a new table to overwrite the provided save data. `isLuamod` will return `true` if
 	PRE_DATA_LOAD = "ISAACSAVEMANAGER_PRE_DATA_LOAD",
+	---()
 	POST_DATA_LOAD = "ISAACSAVEMANAGER_POST_DATA_LOAD",
+	---()
 	POST_ENTITY_DATA_LOAD = "ISAACSAVEMANAGER_POST_ENTITY_DATA_LOAD",
+	---()
 	POST_GLOBAL_DATA_LOAD = "ISAACSAVEMANAGER_POST_GLOBAL_DATA_LOAD",
+	---()
 	DUPE_PICKUP_DATA_LOAD = "ISAACSAVEMANAGER_DUPE_PICKUP_DATA_LOAD",
+	---()
 	PRE_PICKUP_INITSEED_MORPH = "ISAACSAVEMANAGER_PRE_PICKUP_INITSEED_MORPH",
+	---()
 	POST_PICKUP_INITSEED_MORPH = "ISAACSAVEMANAGER_POST_PICKUP_INITSEED_MORPH",
+	---()
 	PRE_ROOM_DATA_RESET = "ISAACSAVEMANAGER_PRE_ROOM_DATA_RESET",
+	---()
 	POST_ROOM_DATA_RESET = "ISAACSAVEMANAGER_POST_ROOM_DATA_RESET",
+	---()
 	PRE_TEMP_DATA_RESET = "ISAACSAVEMANAGER_PRE_TEMP_DATA_RESET",
+	---()
 	POST_TEMP_DATA_RESET = "ISAACSAVEMANAGER_POST_TEMP_DATA_RESET",
+	---()
 	PRE_FLOOR_DATA_RESET = "ISAACSAVEMANAGER_PRE_FLOOR_DATA_RESET",
+	---()
 	POST_FLOOR_DATA_RESET = "ISAACSAVEMANAGER_POST_FLOOR_DATA_RESET",
+	---()
 	PRE_GLOWING_HOURGLASS_RESET = "ISAACSAVEMANAGER_PRE_GLOWING_HOURGLASS_RESET",
+	---()
 	POST_GLOWING_HOURGLASS_RESET = "ISAACSAVEMANAGER_POST_GLOWING_HOURGLASS_RESET"
 }
 
@@ -1411,7 +1428,7 @@ local function postNewRoom()
 	currentListIndex = currentRoomDesc.ListIndex
 	resetData("temp")
 	tryRemoveLeftoverData()
-	if not SaveManager.AutoCreatePickupSaves then return end
+	if not SaveManager.AutoCreateRoomSaves then return end
 	local roomSaveData = SaveManager.GetRoomSave(nil, false, currentListIndex)
 	roomSaveData.__SAVEMANAGER_SPAWN_SEED = currentRoomDesc.SpawnSeed
 	roomSaveData.__SAVEMANAGER_ROOM_TYPE = currentRoomDesc.Data.Type
