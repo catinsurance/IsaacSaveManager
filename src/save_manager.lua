@@ -1,5 +1,5 @@
 ---@diagnostic disable: missing-fields
--- Check out everything here: https://github.com/maya-bee/IsaacSaveManager
+-- Check out everything here: https://github.com/catinsurance/IsaacSaveManager/
 
 local game = Game()
 local SaveManager = {}
