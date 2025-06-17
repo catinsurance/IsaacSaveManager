@@ -3,10 +3,10 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = "2.2.1"
+SaveManager.VERSION = "2.2.2"
 SaveManager.Utility = {}
 
-SaveManager.Debug = false
+SaveManager.Debug = true
 
 SaveManager.AutoCreateRoomSaves = true
 
@@ -717,6 +717,7 @@ function SaveManager.QueueHourglassRestore()
 	if shouldRestoreOnUse then
 		usedHourglass = true
 		skipRoomReset = true
+		skipFloorReset = true
 		SaveManager.Utility.DebugLog("Activated glowing hourglass. Data will be reset on new room.")
 		Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_GLOWING_HOURGLASS_RESET)
 	end
@@ -1326,7 +1327,7 @@ local function resetData(saveType)
 	end
 	if saveType == "temp" then
 		skipRoomReset = false
-	elseif saveType == "floor" then
+	elseif saveType == "floor" or saveType == "room" then
 		skipFloorReset = false
 	end
 end
@@ -1516,7 +1517,7 @@ function SaveManager.Init(mod)
 					currentMenu == MainMenuType.MODS
 				detectLuamod()
 			end)
-		modReference:AddCallback(ModCallbacks.MC_PRE_GLOWING_HOURGLASS_SAVE, function(_, slot)
+		modReference:AddCallback(ModCallbacks.MC_POST_GLOWING_HOURGLASS_SAVE, function(_, slot)
 			hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
 		end)
 		modReference:AddCallback(ModCallbacks.MC_PRE_GLOWING_HOURGLASS_LOAD, function(_, slot)
