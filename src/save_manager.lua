@@ -38,8 +38,15 @@ local movingBoxCheck = false
 local currentListIndex = 0
 local checkLastIndex = false
 local inRunButNotLoaded = true
+local tLazInitPlayer
+local tLazInitSeeds
 local dupeTaggedPickups = {}
 local allowedAscentRooms = {}
+
+local isLazB = {
+	[PlayerType.PLAYER_LAZARUS_B] = true,
+	[PlayerType.PLAYER_LAZARUS2_B] = true
+}
 
 ---@class SaveData
 local dataCache = {}
@@ -318,16 +325,31 @@ function SaveManager.Utility.GetSaveIndex(ent, allowSoulSave)
 		else
 			name = "NPC_"
 		end
-		identifier = ent.InitSeed
 		if ent:ToPlayer() then
 			local player = ent:ToPlayer() ---@cast player EntityPlayer
 			local id = 1
 			if allowSoulSave then
 				player = player:GetSubPlayer() or player
 			end
-			identifier = tostring(player:GetCollectibleRNG(id):GetSeed())
+			if player:GetPlayerType() == PlayerType.PLAYER_LAZARUS2_B then
+				id = 2
+				if player.FrameCount == 0 then
+					identifier = tostring(Isaac.GetPlayer(game:GetNumPlayers() - 1):GetCollectibleRNG(2):GetSeed())
+				end
+			end
+			if game:GetFrameCount() > 0 and tLazInitSeeds then
+				identifier = tostring(tLazInitSeeds[id])
+			elseif not identifier then
+				local laz = player:GetData().__SAVEMANAGER_ALIVE_LAZ
+				if laz and laz:ToPlayer() then
+					player = laz:ToPlayer()
+				end
+				identifier = tostring(player:GetCollectibleRNG(id):GetSeed())
+			end
 		elseif ent.Type == EntityType.ENTITY_PICKUP then
 			identifier = GetPtrHash(ent)
+		else
+			identifier = ent.InitSeed
 		end
 	elseif ent and type(ent) == "number" then
 		name = "GRID_"
@@ -1080,9 +1102,34 @@ end
 ---@param ent? Entity
 local function onEntityInit(_, ent)
 	local newGame = game:GetFrameCount() == 0 and not ent
+	local player = ent and ent:ToPlayer()
+	local initLaz = false
 	local defaultSaveIndex = SaveManager.Utility.GetSaveIndex(ent)
 	local altSaveIndex = SaveManager.Utility.GetSaveIndex(ent, true)
 	local defaultKey = SaveManager.Utility.GetDefaultSaveKey(ent)
+
+	if player and isLazB[player:GetPlayerType()] and not newGame and player.FrameCount == 0 then
+		local playerType = player:GetPlayerType()
+		if not tLazInitPlayer then
+			tLazInitPlayer = player
+			tLazInitSeeds = {player:GetCollectibleRNG(1):GetSeed(), player:GetCollectibleRNG(2):GetSeed()}
+			initLaz = true
+		--Uses EntityPlayer directly instead of EntityPtr as .Ref gets nil'd when adding then removing Birthright
+		--This data is cleared when one of them dies anyways
+		elseif playerType == PlayerType.PLAYER_LAZARUS2_B then
+			player:GetData().__SAVEMANAGER_ALIVE_LAZ = tLazInitPlayer
+		elseif playerType == PlayerType.PLAYER_LAZARUS_B then
+			tLazInitPlayer:GetData().__SAVEMANAGER_ALIVE_LAZ = player
+		end
+	end
+	if player and isLazB[player:GetPlayerType()] then
+		SaveManager.Utility.DebugLog(player:GetPlayerType(), player:GetCollectibleRNG(1):GetSeed(), player:GetCollectibleRNG(2):GetSeed(), defaultSaveIndex	)
+	end
+
+	if player and not initLaz then
+		tLazInitPlayer = nil
+		tLazInitSeeds = nil
+	end
 	checkLastIndex = false
 
 	if not loadedData or inRunButNotLoaded then
@@ -1350,6 +1397,11 @@ local function preGameExit(_, shouldSave)
 		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 	end
 	SaveManager.Save()
+	if shouldSave then
+		dataCache.game = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+		dataCache.gameNoBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup)
+		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+	end
 	inRunButNotLoaded = false
 	shouldRestoreOnUse = false
 	dontSaveModData = true
@@ -1375,25 +1427,6 @@ local function postEntityRemove(_, ent)
 			storePickupData(ent)
 		end
 		return
-	end
-	local defaultSaveIndex = SaveManager.Utility.GetSaveIndex(ent)
-	---@param tab GameSave
-	local function removeSaveData(tab, saveIndex)
-		for saveType, dataTable in pairs(tab) do
-			if saveType == "room" and dataTable[SaveManager.Utility.GetListIndex()] then
-				removeSaveData(dataTable)
-			elseif dataTable[saveIndex] then
-				SaveManager.Utility.DebugLog("Removed data", saveIndex)
-				dataTable[saveIndex] = nil
-			end
-		end
-	end
-	removeSaveData(dataCache.game, defaultSaveIndex)
-	removeSaveData(dataCache.gameNoBackup, defaultSaveIndex)
-	if ent:ToPlayer() and ent:ToPlayer():GetSubPlayer() then
-		local altSaveIndex = SaveManager.Utility.GetSaveIndex(ent, true)
-		removeSaveData(dataCache.game, altSaveIndex)
-		removeSaveData(dataCache.gameNoBackup, altSaveIndex)
 	end
 end
 
