@@ -6,7 +6,7 @@ local SaveManager = {}
 SaveManager.VERSION = "2.2.2"
 SaveManager.Utility = {}
 
-SaveManager.Debug = true
+SaveManager.Debug = false
 
 SaveManager.AutoCreateRoomSaves = true
 
