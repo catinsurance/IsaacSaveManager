@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = "2.2.2"
+SaveManager.VERSION = "2.3"
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
@@ -28,7 +28,7 @@ local modReference
 local minimapAPIReference
 local json = require("json")
 local loadedData = false
-local dontSaveModData = true
+local dontSaveModData = game:GetFrameCount() == 0
 local skipFloorReset = false
 local skipRoomReset = false
 local shouldRestoreOnUse = true
@@ -51,7 +51,11 @@ local isLazB = {
 ---@class SaveData
 local dataCache = {}
 ---@class GameSave
-local hourglassBackup = {}
+local hourglassBackup = {
+	["0"] = {},
+	["1"] = {}
+}
+local lastUsedHourglassSlot = "0"
 
 SaveManager.Utility.ERROR_MESSAGE_FORMAT = "[IsaacSaveManager:%s] ERROR: %s (%s)\n"
 SaveManager.Utility.WARNING_MESSAGE_FORMAT = "[IsaacSaveManager:%s] WARNING: %s (%s)\n"
@@ -746,12 +750,12 @@ function SaveManager.QueueHourglassRestore()
 end
 
 -- Restores the game save with the data in the hourglass backup.
-function SaveManager.TryHourglassRestore()
+function SaveManager.TryHourglassRestore(slot)
 	if usedHourglass then
-		local newData = SaveManager.Utility.DeepCopy(hourglassBackup)
+		local newData = SaveManager.Utility.DeepCopy(hourglassBackup[slot])
 		dataCache.game = SaveManager.Utility.PatchSaveFile(newData, SaveManager.DEFAULT_SAVE.game)
 		usedHourglass = false
-		SaveManager.Utility.DebugLog("Restored data from Glowing Hourglass")
+		SaveManager.Utility.DebugLog("Restored data from Glowing Hourglass from slot", slot)
 		Isaac.RunCallback(SaveManager.SaveCallbacks.POST_GLOWING_HOURGLASS_RESET)
 	end
 end
@@ -785,9 +789,16 @@ function SaveManager.Load(isLuamod)
 	dataCache = saveData
 	--Would only fail to exist if you continued a run before creating save data for the first time
 	if dataCache.hourglassBackup then
-		hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
+		if not dataCache.hourglassBackup["0"] then
+			local hourglass_backup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
+			hourglassBackup["0"] = hourglass_backup
+			hourglassBackup["1"] = hourglass_backup
+		else
+			hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.hourglassBackup)
+		end
 	else
-		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE)
+		hourglassBackup["0"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+		hourglassBackup["1"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 	end
 
 	loadedData = true
@@ -798,6 +809,7 @@ end
 
 ---Gets a unique string as an identifier for the pickup when outside of the room it's present in.
 ---@param pickup EntityPickup
+---@return string, string? @Returns a second string for the ListIndex the pickup index was found in if the Myosotis check is active
 function SaveManager.Utility.GetPickupIndex(pickup)
 	local index = table.concat(
 		{ "PICKUP_ROOMDATA",
@@ -809,22 +821,27 @@ function SaveManager.Utility.GetPickupIndex(pickup)
 		--Trick code to pulling previous floor's data only if initseed matches.
 		--Even with dupe initseeds pickups spawning, it'll go through and init data for each one
 		SaveManager.Utility.DebugLog("Data active for a transferred pickup. Attempting to find data...")
-		local targetTable = myosotisCheck and hourglassBackup.pickupRoom or dataCache.game.movingBox
-		if myosotisCheck then
-			local listIndex = SaveManager.Utility.GetListIndex()
-			if targetTable[listIndex] then
-				targetTable = targetTable[listIndex]
-			end
-		end
-		for backupIndex, _ in pairs(targetTable) do
+		local targetTable = myosotisCheck and hourglassBackup[lastUsedHourglassSlot].pickupRoom or dataCache.game.movingBox
+		local function tryFindPickupData(tableToLoop)
+			for backupIndex, _ in pairs(tableToLoop) do
 			local initSeed = pickup.InitSeed
 
-			if string.sub(backupIndex, -string.len(tostring(initSeed)), -1) == tostring(initSeed) then
-				index = backupIndex
-				SaveManager.Utility.DebugLog("Stored data found for",
-					SaveManager.Utility.GetSaveIndex(pickup) .. ".")
-				break
+				if string.sub(backupIndex, -string.len(tostring(initSeed)), -1) == tostring(initSeed) then
+					index = backupIndex
+					SaveManager.Utility.DebugLog("Stored data found for", SaveManager.Utility.GetSaveIndex(pickup) .. ".")
+					return true
+				end
 			end
+		end
+		if myosotisCheck then
+			for listIndexFound, dataTable in pairs(targetTable) do
+				local foundPickup = tryFindPickupData(dataTable)
+				if foundPickup then
+					return index, listIndexFound
+				end
+			end
+		else
+			tryFindPickupData(targetTable)
 		end
 	end
 	return index
@@ -837,11 +854,11 @@ end
 ---@param pickup EntityPickup
 ---@return table?, string
 function SaveManager.Utility.GetPickupData(pickup)
-	local pickupIndex = SaveManager.Utility.GetPickupIndex(pickup)
+	local pickupIndex, myosotisIndex = SaveManager.Utility.GetPickupIndex(pickup)
 	local listIndex = SaveManager.Utility.GetListIndex()
 	local pickupDataRoot = dataCache.game.pickupRoom[listIndex]
 	if myosotisCheck then
-		pickupDataRoot = hourglassBackup.pickupRoom[listIndex]
+		pickupDataRoot = hourglassBackup[lastUsedHourglassSlot].pickupRoom[myosotisIndex]
 	elseif movingBoxCheck then
 		pickupDataRoot = dataCache.game.movingBox
 	end
@@ -935,9 +952,7 @@ local function populatePickupData(pickup)
 	end
 	if pickupData then
 		dataCache.game.room[listIndex][saveIndex] = pickupData
-		SaveManager.Utility.DebugLog("Successfully populated pickup data of index", saveIndex,
-			"in ListIndex",
-			listIndex)
+		SaveManager.Utility.DebugLog("Successfully populated pickup data of index", saveIndex, "in ListIndex", listIndex)
 		if movingBoxCheck then
 			dataCache.game.movingBox[pickupIndex] = nil
 		elseif dataCache.game.pickupRoom[listIndex] then
@@ -1140,7 +1155,8 @@ local function onEntityInit(_, ent)
 	if newGame then
 		dataCache.game = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 		dataCache.gameNoBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup)
-		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+		hourglassBackup["0"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+		hourglassBackup["1"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 	end
 
 	-- provide an array of keys to grab the target table from the original
@@ -1331,7 +1347,7 @@ local function resetData(saveType)
 			room = {SaveManager.SaveCallbacks.PRE_ROOM_DATA_RESET, SaveManager.SaveCallbacks.POST_ROOM_DATA_RESET},
 			floor = {SaveManager.SaveCallbacks.PRE_FLOOR_DATA_RESET, SaveManager.SaveCallbacks.POST_FLOOR_DATA_RESET}
 		}
-		Isaac.RunCallback(typeToCallback[saveType][1])
+		Isaac.RunCallback(typeToCallback[saveType]["1"])
 		local transferBossAscentData = {}
 		local listIndex = SaveManager.Utility.GetListIndex()
 		if saveType ~= "temp" and game:GetLevel():IsAscent() then
@@ -1359,8 +1375,10 @@ local function resetData(saveType)
 			end
 		end
 		dataCache.game[saveType] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game[saveType])
-		dataCache.gameNoBackup[saveType] = SaveManager.Utility.PatchSaveFile({},
-			SaveManager.DEFAULT_SAVE.gameNoBackup[saveType])
+		dataCache.gameNoBackup[saveType] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup[saveType])
+		if saveType == "floor" then
+			dataCache.game.pickupRoom = {}
+		end
 		for index, data in pairs(transferBossAscentData) do
 			if not dataCache.game.room[listIndex] then
 				dataCache.game.room[listIndex] = {}
@@ -1394,13 +1412,15 @@ local function preGameExit(_, shouldSave)
 	else
 		dataCache.game = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 		dataCache.gameNoBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup)
-		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+		hourglassBackup["0"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+		hourglassBackup["1"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 	end
 	SaveManager.Save()
 	if shouldSave then
 		dataCache.game = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 		dataCache.gameNoBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup)
-		hourglassBackup = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+		hourglassBackup["0"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+		hourglassBackup["1"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 	end
 	inRunButNotLoaded = false
 	shouldRestoreOnUse = false
@@ -1416,6 +1436,7 @@ local function postEntityRemove(_, ent)
 		return
 	end
 
+	--If the game is paused via room transition, or saving pickups that disappear from Moving Box
 	if (game:IsPaused() and game:GetRoom():GetFrameCount() == 0) or (ent.Type == EntityType.ENTITY_PICKUP and movingBoxCheck) then
 		--Although entities are removed from the previous room and this happens before POST_NEW_ROOM...
 		--Some data from the new room is already loaded, such as frame count and listindex.
@@ -1427,6 +1448,27 @@ local function postEntityRemove(_, ent)
 			storePickupData(ent)
 		end
 		return
+	end
+	if dontSaveModData then return end
+	--Clear entity data if it's removed inside the room, such as collecting pickups
+	local defaultSaveIndex = SaveManager.Utility.GetSaveIndex(ent)
+	---@param tab GameSave
+	local function removeSaveData(tab, saveIndex)
+		for saveType, dataTable in pairs(tab) do
+			if saveType == "room" and dataTable[SaveManager.Utility.GetListIndex()] then
+				removeSaveData(dataTable, saveIndex)
+			elseif dataTable[saveIndex] then
+				SaveManager.Utility.DebugLog("Removed data", saveIndex)
+				dataTable[saveIndex] = nil
+			end
+		end
+	end
+	removeSaveData(dataCache.game, defaultSaveIndex)
+	removeSaveData(dataCache.gameNoBackup, defaultSaveIndex)
+	if ent:ToPlayer() and ent:ToPlayer():GetSubPlayer() then
+		local altSaveIndex = SaveManager.Utility.GetSaveIndex(ent, true)
+		removeSaveData(dataCache.game, altSaveIndex)
+		removeSaveData(dataCache.gameNoBackup, altSaveIndex)
 	end
 end
 
@@ -1479,9 +1521,10 @@ local function postUpdate()
 	--Shockingly, this triggers for one frame when doing a room transition
 	if not REPENTOGON and game:IsPaused() then
 		if usedHourglass then
-			SaveManager.TryHourglassRestore()
+			SaveManager.TryHourglassRestore("0")
 		else
-			hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
+			hourglassBackup["0"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
+			hourglassBackup["1"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 		end
 	end
 	myosotisCheck = false
@@ -1551,11 +1594,13 @@ function SaveManager.Init(mod)
 				detectLuamod()
 			end)
 		modReference:AddCallback(ModCallbacks.MC_POST_GLOWING_HOURGLASS_SAVE, function(_, slot)
-			hourglassBackup = SaveManager.Utility.DeepCopy(dataCache.game)
+			hourglassBackup[tostring(slot)] = SaveManager.Utility.DeepCopy(dataCache.game)
+			SaveManager.Utility.DebugLog("Saved hourglass data to slot", slot)
+			lastUsedHourglassSlot = tostring(slot)
 		end)
 		modReference:AddCallback(ModCallbacks.MC_PRE_GLOWING_HOURGLASS_LOAD, function(_, slot)
 			SaveManager.QueueHourglassRestore()
-			SaveManager.TryHourglassRestore()
+			SaveManager.TryHourglassRestore(tostring(slot))
 		end)
 	else
 		modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
@@ -1890,6 +1935,13 @@ function SaveManager.GetPersistentSave()
 	if SaveManager.Utility.IsDataInitialized() then
 		return dataCache.file.other
 	end
+end
+
+---Returns the save table used for Glowing Hourglass backups. It holds two copies, indexed by 0 and 1 for the different hourglass slots provided by the REPENTOGON callbacks.
+---
+---If not using REPENTOGON, will only ever populate slot 0 instead
+function SaveManager.GetHourglassSave()
+	return hourglassBackup
 end
 
 --#endregion
