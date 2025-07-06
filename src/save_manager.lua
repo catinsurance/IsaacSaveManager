@@ -482,23 +482,16 @@ function SaveManager.Utility.ValidateForJson(tab)
 				SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE:format(index, tostring(value), valType)
 		end
 
-		if type(index) == "number" and mFloor(index) ~= index then
-			local valType = type(value) == "userdata" and getmetatable(value).__type or type(value)
-			return SaveManager.Utility.ValidityState.INVALID,
-				SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE:format(index, tostring(value), valType)
+		if type(index) == "number" then
+			if mFloor(index) ~= index then
+				local valType = type(value) == "userdata" and getmetatable(value).__type or type(value)
+				return SaveManager.Utility.ValidityState.INVALID,
+					SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE:format(index, tostring(value), valType)
+			elseif value == math.huge or value == -math.huge or value ~= value then
+				return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.NAN_VALUE
+			end
 		end
-	end
 
-	-- check for sparse array
-	if isSparseArray(tab) then
-		hasWarning = SaveManager.Utility.JsonIncompatibilityType.SPARSE_ARRAY
-	end
-
-	if SaveManager.Utility.IsCircular(tab) then
-		return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.CIRCULAR_TABLE
-	end
-
-	for index, value in pairs(tab) do
 		-- check for NaN and infinite values
 		-- http://lua-users.org/wiki/InfAndNanComparisons
 		if type(value) == "number" then
@@ -514,8 +507,19 @@ function SaveManager.Utility.ValidateForJson(tab)
 			end
 		elseif type(value) ~= "string" and type(value) ~= "boolean" then
 			local valType = type(value) == "userdata" and getmetatable(value).__type or type(value)
-			return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.INVALID_VALUE:format(index, tostring(value), valType)
+			--if not SaveManager.Utility.Serialize(tab, index, value) then
+				return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.INVALID_VALUE:format(index, tostring(value), valType)
+			--end
 		end
+	end
+
+	-- check for sparse array
+	if isSparseArray(tab) then
+		hasWarning = SaveManager.Utility.JsonIncompatibilityType.SPARSE_ARRAY
+	end
+
+	if SaveManager.Utility.IsCircular(tab) then
+		return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.CIRCULAR_TABLE
 	end
 
 	if hasWarning then
