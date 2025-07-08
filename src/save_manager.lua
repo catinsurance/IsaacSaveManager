@@ -563,7 +563,6 @@ function SaveManager.Utility.IsDataTypeAllowed(entType, saveType)
 			or saveType == "floor"
 		)
 	then
-		print(saveType)
 		SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.INVALID_TYPE_WITH_SAVE:format(entType))
 		return false
 	end
