@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = "2.3"
+SaveManager.VERSION = "2.3.1"
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
@@ -38,6 +38,7 @@ local movingBoxCheck = false
 local currentListIndex = 0
 local checkLastIndex = false
 local inRunButNotLoaded = true
+local retainFamiliarSaveOnFlip = false
 local tLazInitPlayer
 local tLazInitSeeds
 local dupeTaggedPickups = {}
@@ -1366,7 +1367,7 @@ local function resetData(saveType)
 			room = {SaveManager.SaveCallbacks.PRE_ROOM_DATA_RESET, SaveManager.SaveCallbacks.POST_ROOM_DATA_RESET},
 			floor = {SaveManager.SaveCallbacks.PRE_FLOOR_DATA_RESET, SaveManager.SaveCallbacks.POST_FLOOR_DATA_RESET}
 		}
-		Isaac.RunCallback(typeToCallback[saveType]["1"])
+		Isaac.RunCallback(typeToCallback[saveType][1])
 		local transferBossAscentData = {}
 		local listIndex = SaveManager.Utility.GetListIndex()
 		if saveType ~= "temp" and game:GetLevel():IsAscent() then
@@ -1468,7 +1469,7 @@ local function postEntityRemove(_, ent)
 		end
 		return
 	end
-	if dontSaveModData then return end
+	if dontSaveModData or ent:ToFamiliar() and retainFamiliarSaveOnFlip then return end
 	--Clear entity data if it's removed inside the room, such as collecting pickups
 	local defaultSaveIndex = SaveManager.Utility.GetSaveIndex(ent)
 	---@param tab GameSave
@@ -1689,6 +1690,24 @@ function SaveManager.Init(mod)
 			SaveManager.Save()
 		end,
 		CollectibleType.COLLECTIBLE_GENESIS
+	)
+
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
+		function (_, _, _, player)
+			if isLazB[player:GetPlayerType()] then
+				retainFamiliarSaveOnFlip = true
+			end
+		end,
+		CollectibleType.COLLECTIBLE_FLIP
+	)
+
+	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
+		function (_, _, _, player)
+			if isLazB[player:GetPlayerType()] then
+				retainFamiliarSaveOnFlip = false
+			end
+		end,
+		CollectibleType.COLLECTIBLE_FLIP
 	)
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod and for unique per-mod callbacks
