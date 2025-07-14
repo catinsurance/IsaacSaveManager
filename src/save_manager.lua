@@ -425,7 +425,6 @@ end
 ---@param source table
 function SaveManager.Utility.PatchSaveFile(deposit, source)
 	for i, v in pairs(source) do
-		if i == "room" then goto continue end --No default room-specific saves.
 		if SaveManager.Utility.IsDefaultSaveKey(i) then
 			SaveManager.Utility.PatchSaveFile(deposit, v)
 		elseif type(v) == "table" then
@@ -437,7 +436,6 @@ function SaveManager.Utility.PatchSaveFile(deposit, source)
 		elseif deposit[i] == nil then
 			deposit[i] = v
 		end
-		::continue::
 	end
 
 	return deposit
