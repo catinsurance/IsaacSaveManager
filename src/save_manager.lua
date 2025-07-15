@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = "2.3.1"
+SaveManager.VERSION = "2.3.2"
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
@@ -1539,6 +1539,7 @@ local function postUpdate()
 	end
 	myosotisCheck = false
 	movingBoxCheck = false
+	retainFamiliarSaveOnFlip = false
 	dupeTaggedPickups = {}
 end
 
@@ -1698,6 +1699,13 @@ function SaveManager.Init(mod)
 			end
 		end,
 		CollectibleType.COLLECTIBLE_FLIP
+	)
+
+	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
+		function ()
+			retainFamiliarSaveOnFlip = true
+		end,
+		CollectibleType.COLLECTIBLE_ESAU_JR
 	)
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod and for unique per-mod callbacks
