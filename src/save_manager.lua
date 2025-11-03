@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = "2.3.2"
+SaveManager.VERSION = "2.3.3"
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
@@ -68,9 +68,9 @@ SaveManager.Utility.ErrorMessages = {
 	BAD_DATA_WARNING = "Data type saved with warning!",
 	COPY_ERROR =
 	"An error was made when copying from cached data to what would be saved! This could be due to a circular reference.",
-	INVALID_ENTITY_TYPE = "Error using entity type \"%s\": The save manager cannot support non-persistent entities!",
-	INVALID_TYPE_WITH_SAVE =
-	"An error was made using entity type \"%s\": This entity type does not support this save data as it does not persist between floors or move between rooms."
+	INVALID_ENTITY = "Error using entity \"%s.%s.%s\": The save manager cannot support non-persistent entities!",
+	INVALID_ENTITY_WITH_SAVE = "An error was made using entity \"%s.%s.%s\": This entity does not support this save data as it does not persist between floors or move between rooms.",
+	INVALID_DEFAULT_WITH_SAVE = "An error was made using entity type \"%s\": This entity does not support this save data as it does not persist between floors or move between rooms."
 }
 SaveManager.Utility.JsonIncompatibilityType = {
 	SPARSE_ARRAY = "Sparse arrays, or arrays with gaps between indexes, will fill gaps with null when encoded.",
@@ -197,25 +197,135 @@ SaveManager.DEFAULT_SAVE = {
 
 --#region utility methods
 
----@param ent Entity | EntityType
-function SaveManager.Utility.CanHavePersistentData(ent)
-	local defaultAllowedTypes = {
-		[EntityType.ENTITY_PLAYER] = true,
-		[EntityType.ENTITY_FAMILIAR] = true,
-		[EntityType.ENTITY_PICKUP] = true,
-		[EntityType.ENTITY_SLOT] = true,
-		[EntityType.ENTITY_BOMB] = true
-	}
-	local entType = type(ent) == "number" and ent or ent.Type
-	if defaultAllowedTypes[entType] then
-		return true
-	elseif type(ent) == "userdata" then
-		---@cast ent Entity
-		return ent:ToNPC() and ent:HasEntityFlags(EntityFlag.FLAG_PERSISTENT)
-	elseif entType >= 10 then
+---@type {[PickupVariant]: boolean}
+local PICKUP_BLACKLIST = {
+	[PickupVariant.PICKUP_THROWABLEBOMB] = true
+}
+
+---@type {[BombVariant]: boolean}
+local BOMB_BLACKLIST = {
+	[BombVariant.BOMB_THROWABLE] = true,
+	[BombVariant.BOMB_ROCKET] = true,
+	[BombVariant.BOMB_ROCKET_GIGA] = true
+}
+
+---@type {[EffectVariant]: boolean}
+local EFFECT_WHITELIST = {
+	EffectVariant.ISAACS_CARPET,
+	EffectVariant.DICE_FLOOR,
+	EffectVariant.HEAVEN_LIGHT_DOOR,
+	EffectVariant.DIRT_PATCH,
+	EffectVariant.SPAWNER
+}
+
+---@type {[EffectVariant]: boolean}
+local ANIMAL_EFFECTS = {
+	[EffectVariant.TINY_BUG] = true,
+	[EffectVariant.TINY_FLY] = true,
+	[EffectVariant.WALL_BUG] = true,
+	[EffectVariant.WORM] = true,
+	[EffectVariant.WISP] = true,
+	[EffectVariant.BEETLE] = true,
+	[EffectVariant.BUTTERFLY] = true,
+	[EffectVariant.TADPOLE] = true,
+	[EffectVariant.LIL_GHOST] = true
+}
+
+---@param variant integer
+---@param subtype integer
+---@param spawnerType EntityType | integer
+---@param isClear boolean
+---@return boolean
+local function should_save_effect(variant, subtype, spawnerType, isClear)
+	if EFFECT_WHITELIST[variant] then
 		return true
 	end
+
+	if ANIMAL_EFFECTS[variant] then
+		if isClear then
+			return true
+		end
+
+		if spawnerType == EntityType.ENTITY_NULL then
+			return true
+		end
+	end
+
+	if variant == EffectVariant.SMOKE_CLOUD then
+		return spawnerType == EntityType.ENTITY_NULL
+	end
+
+	if variant == EffectVariant.PORTAL_TELEPORT then
+		return subtype < 899
+	end
+
 	return false
+end
+
+---@param type EntityType | integer
+---@param variant integer
+---@param subtype integer
+---@param spawnerType EntityType | integer
+---@param isClear boolean
+---@return boolean
+local function should_save_type(type, variant, subtype, spawnerType, isClear)
+	if type == EntityType.ENTITY_SHOPKEEPER then
+		return true
+	end
+
+	if type == EntityType.ENTITY_FIREPLACE then
+		return variant < 10
+	end
+
+	if type == EntityType.ENTITY_MOVABLE_TNT then
+		return true
+	end
+
+	if type == EntityType.ENTITY_PITFALL then
+		return spawnerType == EntityType.ENTITY_NULL
+	end
+
+	if type == EntityType.ENTITY_MINECART then
+		return variant ~= 10
+	end
+
+	if type == EntityType.ENTITY_GIDEON then
+		return isClear and subtype == 1
+	end
+
+	if type == EntityType.ENTITY_GENERIC_PROP then
+		return true
+	end
+
+	return false
+end
+
+---@param entType EntityType | integer
+---@param variant integer
+---@param subtype integer
+---@param spawnerType EntityType | integer
+---@param isClear boolean
+function SaveManager.Utility.ShouldSaveType(entType, variant, subtype, spawnerType, isClear)
+	if entType == EntityType.ENTITY_PICKUP then
+		return not PICKUP_BLACKLIST[variant]
+	end
+
+	if entType == EntityType.ENTITY_BOMB then
+		return not BOMB_BLACKLIST[variant]
+	end
+
+	if entType == EntityType.ENTITY_SLOT
+		or entType == EntityType.ENTITY_PLAYER
+		or entType == EntityType.ENTITY_FAMILIAR
+	then
+		return true
+	end
+
+	if entType == EntityType.ENTITY_EFFECT then
+		return should_save_effect(variant, subtype, spawnerType, isClear)
+	end
+
+	return should_save_type(entType, variant, subtype, spawnerType, isClear)
 end
 
 function SaveManager.Utility.SendError(msg)
@@ -313,14 +423,11 @@ end
 function SaveManager.Utility.GetSaveIndex(ent, allowSoulSave)
 	local typeToName = {
 		[EntityType.ENTITY_PLAYER] = "PLAYER_",
-		--[EntityType.ENTITY_TEAR] = "TEAR_",
 		[EntityType.ENTITY_FAMILIAR] = "FAMILIAR_",
 		[EntityType.ENTITY_BOMB] = "BOMB_",
 		[EntityType.ENTITY_PICKUP] = "PICKUP_",
 		[EntityType.ENTITY_SLOT] = "SLOT_",
-		--[EntityType.ENTITY_LASER] = "LASER_",
-		--[EntityType.ENTITY_KNIFE] = "KNIFE_",
-		--[EntityType.ENTITY_PROJECTILE] = "PROJECTILE_"
+		[EntityType.ENTITY_EFFECT] = "EFFECT_"
 	}
 	local name
 	local identifier
@@ -544,26 +651,48 @@ end
 ---@alias DataDuration "run" | "floor" | "room" | "temp"
 
 ---Checks if the entity type with the given save data's duration is permitted within the save manager.
----@param entType integer
+---@param ent Entity
 ---@param saveType DataDuration
-function SaveManager.Utility.IsDataTypeAllowed(entType, saveType)
-	if type(entType) == "number"
-		and not SaveManager.Utility.CanHavePersistentData(entType)
-	then
-		SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.INVALID_ENTITY_TYPE:format(entType))
-		return false
+---@return boolean, string?
+function SaveManager.Utility.IsEntitySaveAllowed(ent, saveType)
+	if not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType, game:GetRoom():IsClear()) then
+		return false, SaveManager.Utility.ErrorMessages.INVALID_ENTITY:format(ent.Type)
 	end
-	if type(entType) == "number"
-		and entType ~= EntityType.ENTITY_PLAYER
+	local entType = ent.Type
+	if entType ~= EntityType.ENTITY_PLAYER
 		and entType ~= EntityType.ENTITY_FAMILIAR
-		and entType < 10
-		and (
-			saveType == "run"
-			or saveType == "floor"
-		)
+		and (entType < 10 or entType == EntityType.ENTITY_EFFECT)
+		and (saveType == "run" or saveType == "floor")
 	then
-		SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.INVALID_TYPE_WITH_SAVE:format(entType))
-		return false
+		return false, SaveManager.Utility.ErrorMessages.INVALID_ENTITY_WITH_SAVE:format(ent.Type, ent.Variant, ent.SubType)
+	end
+	if ent:ToNPC() then
+		if ent:HasEntityFlags(EntityFlag.FLAG_PERSISTENT) then
+			return true
+		end
+
+		if ent.Type == EntityType.ENTITY_BLOOD_PUPPY then
+			if ent.Parent.Type == EntityType.ENTITY_FAMILIAR then
+				return true
+			else
+				return false, "Cannot save data for Blood Puppy if it is not handled by a familiar."
+			end
+		end
+
+		if ent:HasEntityFlags(EntityFlag.FLAG_FRIENDLY) then
+			if not ent:IsBoss()
+				and ent:IsActiveEnemy(false)
+				and (ent.Type ~= EntityType.ENTITY_CHARGER or (ent.Variant ~= 0 and ent.SubType ~= 1)) --My Shadow charger, lol
+			then
+				return true
+			elseif ent:IsBoss() then
+				return false, "Cannot save data for friendly bosses"
+			elseif not ent:IsActiveEnemy(false) then
+				return false, "Cannot save data for friendly non-active enemies"
+			elseif ent.Type == EntityType.ENTITY_CHARGER and ent.Variant ~= 0 and ent.SubType ~= 1 then
+				return false, "Cannot save data for the My Shadow Charger"
+			end
+		end
 	end
 	return true
 end
@@ -628,9 +757,14 @@ local function addDefaultData(saveKey, saveType, data, noHourglass)
 		[SaveManager.DefaultSaveKeys.SLOT] = EntityType.ENTITY_SLOT,
 		[SaveManager.DefaultSaveKeys.BOMB] = EntityType.ENTITY_BOMB
 	}
+	local entType = saveKey[keyToType]
 	if saveKey ~= SaveManager.DefaultSaveKeys.GLOBAL
-		and not SaveManager.Utility.IsDataTypeAllowed(keyToType[saveKey], saveType)
+		and entType ~= EntityType.ENTITY_PLAYER
+		and entType ~= EntityType.ENTITY_FAMILIAR
+		and (entType < 10 or entType == EntityType.ENTITY_EFFECT)
+		and (saveType == "run" or saveType == "floor")
 	then
+		SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.INVALID_DEFAULT_WITH_SAVE:format(entType))
 		return
 	end
 
@@ -792,7 +926,7 @@ function SaveManager.Load(isLuamod)
 	end
 
 	if game:GetFrameCount() > 0 then
-		currentListIndex = saveData.__SAVEMANAGER_LIST_INDEX or Game():GetLevel():GetCurrentRoomDesc().ListIndex
+		currentListIndex = saveData.__SAVEMANAGER_LIST_INDEX or game:GetLevel():GetCurrentRoomDesc().ListIndex
 		saveData.__SAVEMANAGER_LIST_INDEX = nil
 	end
 
@@ -1317,8 +1451,9 @@ end
 local function tryRemoveLeftoverData()
 	SaveManager.Utility.DebugLog("leftover ent data check")
 	local availableIndexes = {}
+	local clearedRoom = game:GetRoom():IsClear()
 	for _, ent in ipairs(Isaac.GetRoomEntities()) do
-		if SaveManager.Utility.CanHavePersistentData(ent) then
+		if SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType, clearedRoom) then
 			availableIndexes[SaveManager.Utility.GetSaveIndex(ent)] = true
 		end
 	end
@@ -1441,7 +1576,7 @@ end
 ---@param ent Entity
 local function postEntityRemove(_, ent)
 	if not dataCache.game
-		or not SaveManager.Utility.CanHavePersistentData(ent)
+		or not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType, game:GetRoom():IsClear())
 	then
 		return
 	end
@@ -1583,6 +1718,7 @@ function SaveManager.Init(mod)
 		ModCallbacks.MC_POST_PICKUP_INIT,
 		ModCallbacks.MC_POST_BOMB_INIT,
 		ModCallbacks.MC_POST_NPC_INIT,
+		ModCallbacks.MC_POST_EFFECT_INIT
 	}
 
 	for _, initCallback in ipairs(initCallbacks) do
@@ -1771,8 +1907,8 @@ end
 ---@return table
 local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, saveType, listIndex, allowSoulSave)
 	if not SaveManager.Utility.IsDataInitialized(not initDataIfNotPresent)
-		---@diagnostic disable-next-line: undefined-field
-		or (ent and type(ent) == "userdata" and not SaveManager.Utility.IsDataTypeAllowed(ent.Type, saveType))
+		---@diagnostic disable-next-line: param-type-mismatch
+		or (ent and type(ent) == "userdata" and not SaveManager.Utility.IsEntitySaveAllowed(ent, saveType))
 	then
 		---@diagnostic disable-next-line: missing-return-value
 		return
