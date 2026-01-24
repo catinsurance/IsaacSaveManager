@@ -461,7 +461,7 @@ function SaveManager.Utility.GetSaveIndex(ent, allowSoulSave)
 					identifier = tostring(Isaac.GetPlayer(game:GetNumPlayers() - 1):GetCollectibleRNG(2):GetSeed())
 				end
 			end
-			if game:GetFrameCount() > 0 and tLazInitSeeds then
+			if game:GetFrameCount() > 0 and tLazInitSeeds and isLazB[player:GetPlayerType()] then
 				identifier = tostring(tLazInitSeeds[id])
 			elseif not identifier then
 				local laz = player:GetData().__SAVEMANAGER_ALIVE_LAZ
