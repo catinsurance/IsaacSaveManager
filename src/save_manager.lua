@@ -58,7 +58,8 @@ SaveManager.Utility.ErrorMessages = {
 	"An error was made when copying from cached data to what would be saved! This could be due to a circular reference.",
 	INVALID_ENTITY = "Error using entity \"%s.%s.%s\": The save manager cannot support non-persistent entities!",
 	INVALID_ENTITY_WITH_SAVE = "An error was made using entity \"%s.%s.%s\": This entity does not support this save data as it does not persist between floors or move between rooms.",
-	INVALID_DEFAULT_WITH_SAVE = "An error was made using entity type \"%s\": This entity does not support this save data as it does not persist between floors or move between rooms."
+	INVALID_ENTITY_WITH_TEMP = "An error was made using entity \"%s.%s.%s\": temp-type data is incompatible with entity saves.",
+	INVALID_ENTITY_WITH_NO_BACKUP = "An error was made using entity \"%s.%s.%s\": \"noBackup\" data is incompatible with entity saves.",
 }
 SaveManager.Utility.JsonIncompatibilityType = {
 	SPARSE_ARRAY = "Sparse arrays, or arrays with gaps between indexes, will fill gaps with null when encoded. Convert them into strings to avoid this.",
@@ -405,10 +406,10 @@ end
 ---@param saveType DataDuration
 ---@return boolean, string?
 function SaveManager.Utility.IsEntitySaveAllowed(ent, saveType)
-	if not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType, game:GetRoom():IsClear()) then
-		return false, SaveManager.Utility.ErrorMessages.INVALID_ENTITY:format(ent.Type)
-	end
 	local entType = ent.Type
+	if saveType == "temp" then
+		return false, SaveManager.Utility.ErrorMessages.INVALID_ENTITY_WITH_TEMP:format(ent.Type, ent.Variant, ent.SubType)
+	end
 	if entType ~= EntityType.ENTITY_PLAYER
 		and entType ~= EntityType.ENTITY_FAMILIAR
 		and (entType < 10 or entType == EntityType.ENTITY_EFFECT)
@@ -747,6 +748,48 @@ end
 
 --#endregion
 
+--#region Curse of the Maze
+
+---@param room_save table
+---@param index1 string
+---@param index2 string
+local function swapRoomData(room_save, index1, index2)
+	local data1 = room_save[index1]
+	room_save[index1] = room_save[index2]
+	room_save[index2] = data1
+end
+
+---@param descriptor1 RoomDescriptor
+---@param descriptor2 RoomDescriptor
+local function onRoomSwap(_, descriptor1, descriptor2)
+	local index1 = tostring(descriptor1.ListIndex)
+	local index2 = tostring(descriptor2.ListIndex)
+	for _, player in ipairs(PlayerManager.GetPlayers()) do
+		local data = EntitySaveStateManager.TryGetEntityData(modReference, player)
+		if data and data.__SAVEMANAGER_SAVE then
+			swapRoomData(data.__SAVEMANAGER_SAVE.room, index1, index2)
+		end
+	end
+	for _, ent in ipairs(Isaac.FindByType(EntityType.ENTITY_FAMILIAR)) do
+		local data = EntitySaveStateManager.TryGetEntityData(modReference, ent)
+		if data and data.__SAVEMANAGER_SAVE then
+			swapRoomData(data.__SAVEMANAGER_SAVE.room, index1, index2)
+		end
+	end
+	swapRoomData(dataCache.game.room, index1, index2)
+	swapRoomData(dataCache.gameNoBackup.room, index1, index2)
+end
+
+--#endregion
+
+--#region Ascent
+
+local function saveAscentRoom(_, levelStage, roomDescriptor, key)
+
+end
+
+--#endregion
+
 --#region reset data
 
 ---@param saveType string
@@ -809,21 +852,6 @@ local function postNewRoom()
 	local level = game:GetLevel()
 	local currentRoomDesc = level:GetCurrentRoomDesc()
 	currentListIndex = currentRoomDesc.ListIndex
-	if not level:IsAscent() then
-		if currentListIndex ~= level:GetCurrentRoomDesc().ListIndex then
-			checkLastIndex = true
-		end
-		local listIndex = tonumber(SaveManager.Utility.GetListIndex())
-		---@cast listIndex integer
-		local lastRoomType = level:GetRoomByIdx(listIndex).Data.Type
-		if lastRoomType ~= RoomType.ROOM_TREASURE and lastRoomType ~= RoomType.ROOM_BOSS then
-			SaveManager.Utility.DebugLog("Room at index", listIndex, "is not valid for Ascent")
-			checkLastIndex = false
-			return
-		end
-		checkLastIndex = false
-	end
-	currentListIndex = currentRoomDesc.ListIndex
 	resetData("temp")
 end
 
@@ -844,7 +872,7 @@ local function postSaveSlotLoad(_, slot, isSlotSelected, raw)
 	if not isSlotSelected then
 		return
 	end
-	if saveFileWait < 3 then
+	if saveFileWait < 6 then
 		saveFileWait = saveFileWait + 1
 	else
 		if isMenuActive and MenuManager.GetActiveMenu() == MainMenuType.SAVES then
@@ -865,8 +893,9 @@ end
 --#region init logic
 
 -- Initializes the save manager.
----@param mod table @The reference to your mod. This is the table that is returned when you call `RegisterMod`.
+---@param mod ModReference @The reference to your mod. This is the table that is returned when you call `RegisterMod`.
 function SaveManager.Init(mod)
+	---@class ModReference
 	modReference = mod
 
 	-- Priority callbacks put in place to load data early and save data late.
@@ -887,7 +916,8 @@ function SaveManager.Init(mod)
 		ModCallbacks.MC_POST_PICKUP_INIT,
 		ModCallbacks.MC_POST_BOMB_INIT,
 		ModCallbacks.MC_POST_NPC_INIT,
-		ModCallbacks.MC_POST_EFFECT_INIT
+		ModCallbacks.MC_POST_EFFECT_INIT,
+		ModCallbacks.MC_POST_SLOT_INIT
 	}
 
 	for _, initCallback in ipairs(initCallbacks) do
@@ -896,8 +926,6 @@ function SaveManager.Init(mod)
 
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, SaveManager.Utility.CallbackPriority.EARLY, postUpdate)
 
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
-		onEntityInit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD,
 		SaveManager.Utility.CallbackPriority.IMPORTANT, postSaveSlotLoad)
 	modReference:AddPriorityCallback(ModCallbacks.MC_MENU_INPUT_ACTION,
@@ -947,12 +975,9 @@ function SaveManager.Init(mod)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, SaveManager.Utility.CallbackPriority.LATE,
 		preGameExit)
 
-	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
-		function()
-			SaveManager.Save()
-		end,
-		CollectibleType.COLLECTIBLE_GENESIS
-	)
+	modReference:AddCallback(ModCallbacks.MC_POST_SWAP_ROOMS, onRoomSwap)
+
+	modReference:AddCallback(ModCallbacks.MC_POST_BACKWARDS_ROOM_SAVE, saveAscentRoom)
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod and for unique per-mod callbacks
 	modReference.__SAVEMANAGER_UNIQUE_KEY = ("%s-%s"):format(modReference.Name, Random())
@@ -1024,9 +1049,18 @@ local function getRespectiveSave(ent, noHourglass, saveType, listIndex, allowSou
 		return
 	end
 	if ent then
-		---@diagnostic disable-next-line: param-type-mismatch
-		if (type(ent) == "userdata" and not SaveManager.Utility.IsEntitySaveAllowed(ent, saveType)) then
-			return
+		if type(ent) == "userdata" then
+			if noHourglass then
+				---@cast ent Entity
+				SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.INVALID_ENTITY_WITH_NO_BACKUP:format(ent.Type, ent.Variant, ent.SubType))
+				return
+			end
+			---@diagnostic disable-next-line: param-type-mismatch
+			local allowed, error = SaveManager.Utility.IsEntitySaveAllowed(ent, saveType)
+			if not allowed then
+				SaveManager.Utility.SendError(error)
+				return
+			end
 		elseif type(ent) == "integer" and saveType ~= "room" and saveType ~= "temp" then
 			return
 		end
@@ -1040,36 +1074,56 @@ local function getRespectiveSave(ent, noHourglass, saveType, listIndex, allowSou
 	if type(ent) == "userdata" then
 		---@cast ent Entity
 		---@diagnostic disable-next-line: undefined-field
-		local player = ent and type(ent) == "userdata" and ent:ToPlayer() or nil
+		local player = ent:ToPlayer()
 		if allowSoulSave
-		and player
-		and player:GetPlayerType() == PlayerType.PLAYER_THESOUL
-		and player:GetSubPlayer() ~= nil
+			and player
+			and player:GetPlayerType() == PlayerType.PLAYER_THESOUL
+			and player:GetSubPlayer() ~= nil
 		then
 			ent = player:GetSubPlayer()
 		end
-		local data = EntitySaveStateManager.TryGetEntityData(modReference, ent)
+		local data
 		if initDataIfNotPresent then
 			data = EntitySaveStateManager.GetEntityData(modReference, ent)
+		else
+			data = EntitySaveStateManager.TryGetEntityData(modReference, ent)
 		end
+		if not data then return end
 		--Pickups need their separated Reroll and NoReroll saves.
 		if ent:ToPickup() then
-			if initDataIfNotPresent then
+			if initDataIfNotPresent and not data.__SAVEMANAGER_PICKUP_SAVE then
 				data.__SAVEMANAGER_PICKUP_SAVE = {
 					InitSeed = ent.InitSeed,
 					RerollSave = {},
 					NoRerollSave = {}
 				}
 			end
-			return data and data.__SAVEMANAGER_PICKUP_SAVE
-			--Need to manually track room-specific data for players and familiars as they're room-persistent.
-		elseif (player or ent:ToFamiliar()) and saveType == "room" and data then
-			if not data.__SAVEMANAGER_LIST_INDEX_SAVE then
-				data.__SAVEMANAGER_LIST_INDEX_SAVE = {[stringListIndex] = {}}
+			return data.__SAVEMANAGER_PICKUP_SAVE
+		elseif (player or ent:ToFamiliar()) then
+			if initDataIfNotPresent and not data.__SAVEMANAGER_SAVE then
+				local saveManagerTable = {
+					run = {},
+					floor = {},
+					room = {}
+				}
+				data.__SAVEMANAGER_SAVE = saveManagerTable
 			end
-			return data.__SAVEMANAGER_LIST_INDEX_SAVE[stringListIndex]
+			if not data.__SAVEMANAGER_SAVE.room[stringListIndex] then
+				data.__SAVEMANAGER_SAVE.room[stringListIndex] = {}
+			end
+			--room saves need to be manually tracked for run-persistent entities
+			if saveType == "room" then
+				return data.__SAVEMANAGER_SAVE[saveType][stringListIndex]
+			else
+				return data.__SAVEMANAGER_SAVE[saveType]
+			end
+		else
+			if initDataIfNotPresent and not data.__SAVEMANAGER_SAVE then
+				data.__SAVEMANAGER_SAVE = {}
+			end
+			return data.__SAVEMANAGER_SAVE
 		end
-		return data
+		return
 	end
 	---@type integer?
 	local gridIndexOrNil = ent
@@ -1097,40 +1151,44 @@ end
 
 ---Returns a save that lasts the duration of the entire run. Exclusive to players and familiars.
 ---@param ent? Entity @If an entity is provided, returns an entity specific save within the run save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass. Has no effect on entity saves.
 ---@param allowSoulSave? boolean @If true, if the `ent` is The Soul attached to The Forgotten, will return a differently indexed save, as opposed to a shared save between the two.
 ---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
-function SaveManager.GetRunSave(ent, _, allowSoulSave)
-	return getRespectiveSave(ent, false, "run", nil, allowSoulSave, true)
+function SaveManager.GetRunSave(ent, noHourglass, allowSoulSave)
+	return getRespectiveSave(ent, noHourglass, "run", nil, allowSoulSave, true)
 end
 
 ---Attempts to return a save that lasts the duration of the entire run. Exclusive to players and familiars.
 ---@param ent? Entity @If an entity is provided, returns an entity specific save within the run save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass. Has no effect on entity saves.
 ---@param allowSoulSave? boolean @If true, if the `ent` is The Soul attached to The Forgotten, will return a differently indexed save, as opposed to a shared save between the two.
 ---@return table? @Can return nil if data has not been loaded, the manager has not been initialized, or if no data already existed.
-function SaveManager.TryGetRunSave(ent, _, allowSoulSave)
-	return getRespectiveSave(ent, false, "run", nil, allowSoulSave)
+function SaveManager.TryGetRunSave(ent, noHourglass, allowSoulSave)
+	return getRespectiveSave(ent, noHourglass, "run", nil, allowSoulSave)
 end
 
 ---Returns a save that lasts the duration of the current floor. Exclusive to players and familiars.
 ---@param ent? Entity  @If an entity is provided, returns an entity specific save within the floor save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass. Has no effect on entity saves.
 ---@param allowSoulSave? boolean @If true, if the `ent` is The Soul attached to The Forgotten, will return a differently indexed save, as opposed to a shared save between the two.
 ---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
-function SaveManager.GetFloorSave(ent, _, allowSoulSave)
-	return getRespectiveSave(ent, false, "floor", nil, allowSoulSave, true)
+function SaveManager.GetFloorSave(ent, noHourglass, allowSoulSave)
+	return getRespectiveSave(ent, noHourglass, "floor", nil, allowSoulSave, true)
 end
 
 ---Attempts to return a save that lasts the duration of the current floor. Exclusive to players and familiars.
 ---@param ent? Entity  @If an entity is provided, returns an entity specific save within the floor save. Otherwise, returns arbitrary data in the save not attached to an entity.
+---@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass. Has no effect on entity saves.
 ---@param allowSoulSave? boolean @If true, if the `ent` is The Soul attached to The Forgotten, will return a differently indexed save, as opposed to a shared save between the two.
 ---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized, or if no data already existed.
-function SaveManager.TryGetFloorSave(ent, _, allowSoulSave)
-	return getRespectiveSave(ent, false, "floor", nil, allowSoulSave)
+function SaveManager.TryGetFloorSave(ent, noHourglass, allowSoulSave)
+	return getRespectiveSave(ent, noHourglass, "floor", nil, allowSoulSave)
 end
 
 ---Returns a save that lasts the duration of the current floor, but data is separated per-room.
 ---**NOTE:** If your data is a pickup, use SaveManager.GetRerollPickupSave/NoRerollPickupSave instead.
 ---@param ent? Entity | integer @If an entity is provided, returns an entity specific save within the room save, which is a floor-lasting save that has unique data per-room. If a grid index is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
----@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
+---@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass. Has no effect on entity saves.
 ---@param listIndex? integer @Returns data for the provided `listIndex` instead of the index of the current room.
 ---@param allowSoulSave? boolean @If true, if the `ent` is The Soul attached to The Forgotten, will return a differently indexed save, as opposed to a shared save between the two.
 ---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
@@ -1141,7 +1199,7 @@ end
 ---Attempts to return a save that lasts the duration of the current floor, but data is separated per-room.
 ---**NOTE:** If your data is a pickup, use SaveManager.TryGetRerollPickupSave/TryGetNoRerollPickupSave instead.
 ---@param ent? Entity | integer @If an entity is provided, returns an entity specific save within the room save, which is a floor-lasting save that has unique data per-room. If a grid index is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
----@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
+---@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass. Has no effect on entity saves.
 ---@param listIndex? integer @Returns data for the provided `listIndex` instead of the index of the current room.
 ---@param allowSoulSave? boolean @If true, if the `ent` is The Soul attached to The Forgotten, will return a differently indexed save, as opposed to a shared save between the two.
 ---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized, or if no data already existed.
@@ -1151,7 +1209,7 @@ end
 
 ---Returns a save that lasts the duration of the current room, being reset once you exit the room.
 ---@param ent? Entity | integer  @If an entity is provided, returns an entity specific save within the room save. If a grid index is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
----@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
+---@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass. Has no effect on entity saves.
 ---@param allowSoulSave? boolean @If true, if the `ent` is The Soul attached to The Forgotten, will return a differently indexed save, as opposed to a shared save between the two.
 ---@return table @Can return nil if data has not been loaded, or the manager has not been initialized. Will create data if none exists.
 function SaveManager.GetTempSave(ent, noHourglass, allowSoulSave)
@@ -1160,7 +1218,7 @@ end
 
 ---Attempts to return a save that lasts the duration of the current room, being reset once you exit the room.
 ---@param ent? Entity | integer  @If an entity is provided, returns an entity specific save within the room save. If a grid index is provided, returns a grid index specific save. Otherwise, returns arbitrary data in the save not attached to an entity.
----@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass.
+---@param noHourglass? boolean @If true, it'll look in a separate game save that is not affected by the Glowing Hourglass. Has no effect on entity saves.
 ---@return table? @Can return nil if data has not been loaded, or the manager has not been initialized, or if no data already existed.
 function SaveManager.TryGetTempSave(ent, noHourglass, allowSoulSave)
 	return getRespectiveSave(ent, noHourglass, "temp", nil, allowSoulSave)
