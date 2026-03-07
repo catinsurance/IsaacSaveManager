@@ -521,7 +521,7 @@ function SaveManager.Save()
 		return
 	end
 
-	local newFinalData = SaveManager.Utility.RunCallback(SaveManager.SaveCallbacks.PRE_DATA_SAVE, finalData)
+	local newFinalData = Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_DATA_SAVE, finalData)
 	if newFinalData then
 		finalData = newFinalData
 	end
@@ -542,7 +542,7 @@ function SaveManager.Save()
 
 	modReference:SaveData(json.encode(finalData))
 
-	SaveManager.Utility.RunCallback(SaveManager.SaveCallbacks.POST_DATA_SAVE, finalData)
+	Isaac.RunCallback(SaveManager.SaveCallbacks.POST_DATA_SAVE, finalData)
 end
 
 local function deleteSave(slot)
@@ -580,7 +580,7 @@ function SaveManager.Load(isLuamod)
 		saveData = SaveManager.Utility.PatchSaveFile(data, SaveManager.DEFAULT_SAVE)
 	end
 
-	local newSaveData = SaveManager.Utility.RunCallback(SaveManager.SaveCallbacks.PRE_DATA_LOAD, saveData,
+	local newSaveData = Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_DATA_LOAD, saveData,
 		isLuamod)
 	if newSaveData then
 		saveData = newSaveData
@@ -609,7 +609,7 @@ function SaveManager.Load(isLuamod)
 	loadedData = true
 	inRunButNotLoaded = false
 
-	SaveManager.Utility.RunCallback(SaveManager.SaveCallbacks.POST_DATA_LOAD, saveData, isLuamod)
+	Isaac.RunCallback(SaveManager.SaveCallbacks.POST_DATA_LOAD, saveData, isLuamod)
 end
 
 ---@deprecated
