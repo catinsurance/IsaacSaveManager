@@ -120,9 +120,9 @@ SaveManager.SaveCallbacks = {
 	---() - Called after Glowing Hourglass reverts all save data has to the hourglass save
 	POST_GLOWING_HOURGLASS_RESET = "ISAACSAVEMANAGER_POST_GLOWING_HOURGLASS_RESET",
 	---(SaveData saveData): SaveData | boolean - Called after a save data deletion is detected, but before save data is deleted. The Settings save is intentionally not wiped by default. Return `true` to stop deletion, or a new table to overwrite the provided save data.
-	PRE_DATA_DELETE = "ISAACSAVEMANAGER_PRE_DATA_DELETE",
+	--PRE_DATA_DELETE = "ISAACSAVEMANAGER_PRE_DATA_DELETE",
 	---(SaveData saveData) - Called after a save data deletion is detected and save data is deleted.  The Settings save is intentionally not wiped by default.
-	POST_DATA_DELETE = "ISAACSAVEMANAGER_POST_DATA_DELETE"
+	--POST_DATA_DELETE = "ISAACSAVEMANAGER_POST_DATA_DELETE"
 }
 
 SaveManager.Utility.CustomCallback = {}
@@ -742,6 +742,7 @@ local function addDefaultData(saveKey, saveType, data, noHourglass)
 	}
 	local entType = saveKey[keyToType]
 	if saveKey ~= SaveManager.DefaultSaveKeys.GLOBAL
+		and entType
 		and entType ~= EntityType.ENTITY_PLAYER
 		and entType ~= EntityType.ENTITY_FAMILIAR
 		and (entType < 10 or entType == EntityType.ENTITY_EFFECT)
@@ -906,8 +907,11 @@ local function hasBeatMom()
 	return true
 end
 
+--Commented out as I'm honestly unsure if anyone wants a "permanently delete my mod save data"
+--
+--But it remains here as an option I suppose
 local function deleteSave(slot)
-	local result = Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_DATA_DELETE, dataCache)
+--[[ 	local result = Isaac.RunCallback(SaveManager.SaveCallbacks.PRE_DATA_DELETE, dataCache)
 	if result == true then
 		return
 	elseif type(result) == "table" then
@@ -923,7 +927,7 @@ local function deleteSave(slot)
 		message = "MOD SAVE DATA IN SAVE FILE " ..  slot .. " DELETED!"
 	end
 	SaveManager.Utility.SendMessage(message)
-	Isaac.RunCallback(SaveManager.SaveCallbacks.POST_DATA_DELETE, dataCache)
+	Isaac.RunCallback(SaveManager.SaveCallbacks.POST_DATA_DELETE, dataCache) ]]
 end
 
 -- Loads save data from the file, overwriting what is already loaded.
@@ -1146,7 +1150,8 @@ local function populatePickupData(pickup)
 		local dupedPickup = pickup
 		local ptrHash1 = GetPtrHash(dupedPickup)
 		dupeTaggedPickups[ptrHash1] = true
-		for _, originalPickup in ipairs(Isaac.FindByType(EntityType.ENTITY_PICKUP, dupedPickup.Variant)) do
+		for _, ent in ipairs(Isaac.FindByType(EntityType.ENTITY_PICKUP, dupedPickup.Variant)) do
+			local originalPickup = ent:ToPickup() ---@cast originalPickup EntityPickup
 			local ptrHash2 = GetPtrHash(originalPickup)
 
 			if originalPickup.FrameCount > 0
@@ -1571,7 +1576,9 @@ local function resetData(saveType)
 	end
 end
 
-local saveFileWait = 3
+--For whatever reason, Rep+ loads all your files twice(1, 1, 2, 2, 3, 3) then the last loaded file.
+local NUM_PRELOADED_SAVES = REPENTANCE_PLUS ~= nil and 6 or 3
+local saveFileWait = NUM_PRELOADED_SAVES
 
 local function preGameExit(_, shouldSave)
 	SaveManager.Utility.DebugLog("pre game exit")
@@ -1713,7 +1720,7 @@ local function postSaveSlotLoad(_, slot, isSlotSelected, raw)
 	if not isSlotSelected then
 		return
 	end
-	if saveFileWait < 3 then
+	if saveFileWait < NUM_PRELOADED_SAVES then
 		saveFileWait = saveFileWait + 1
 	else
 		if isMenuActive and MenuManager.GetActiveMenu() == MainMenuType.SAVES then
@@ -1722,7 +1729,8 @@ local function postSaveSlotLoad(_, slot, isSlotSelected, raw)
 				and sprite:GetLayerFrameData(8):GetStartFrame() --Cursor
 			then
 				deleteSave(slot)
-				saveFileWait = -2
+				--Loads the one you deleted, the last file you loaded, all 3 files, and then the last one you loaded again.
+				saveFileWait = REPENTANCE_PLUS and -2 or 1 --Accounting for the NUM_SAVES_LOAD
 			end
 		end
 		SaveManager.Load(false)
