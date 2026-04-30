@@ -667,7 +667,7 @@ end
 ---@return boolean, string?
 function SaveManager.Utility.IsEntitySaveAllowed(ent, saveType)
 	if not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType, game:GetRoom():IsClear()) then
-		return false, SaveManager.Utility.ErrorMessages.INVALID_ENTITY:format(ent.Type)
+		return false, SaveManager.Utility.ErrorMessages.INVALID_ENTITY:format(ent.Type, ent.Variant, ent.SubType)
 	end
 	local entType = ent.Type
 	if entType ~= EntityType.ENTITY_PLAYER
