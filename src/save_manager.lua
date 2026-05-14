@@ -7,8 +7,7 @@ SaveManager.VERSION = "3.0.0"
 
 if not REPENTOGON or not REPENTANCE_PLUS or not REPENTOGON.MeetsVersion("1.1.1") then
 	local msg = "IsaacSaveManager 3.0 and above only supports the latest version of REPENTOGON! Please ensure you have REPENTOGON installed on Repentance+."
-	print(msg)
-	Isaac.DebugString(msg)
+	error(msg)
 	return
 end
 SaveManager.Utility = {}
@@ -17,9 +16,7 @@ SaveManager.Debug = false
 
 local mFloor = math.floor
 
---TODO: Look at how REPENTOGON handles serializing and de-serializing
---TODO: Restore room saves for Ascent
---TODO: Restore room saves for Curse of the Maze
+--TODO: Look at how REPENTOGON handles serializing and de-serializing. Maybe. I'm lazy!
 --TODO: Testing!
 
 local modReference
@@ -673,7 +670,6 @@ end
 ---@param ent? Entity
 local function onEntityInit(_, ent)
 	local newGame = game:GetFrameCount() == 0 and not ent
-	local defaultSaveIndex = SaveManager.Utility.GetSaveIndex(ent)
 
 	checkLastIndex = false
 
@@ -689,38 +685,29 @@ local function onEntityInit(_, ent)
 		hourglassBackup["1"] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
 	end
 
-	local listIndex = SaveManager.Utility.GetListIndex()
-	local function resetNoRerollData(targetTable, checkIndex)
-		if checkIndex and targetTable[listIndex] then
-			targetTable = targetTable[listIndex]
-		end
-		local data = targetTable[defaultSaveIndex]
-		if data and ent and data.InitSeed and data.InitSeed ~= ent.InitSeed then
+	if ent and ent.Type == EntityType.ENTITY_PICKUP then
+		local pickup = ent:ToPickup()
+		---@cast pickup EntityPickup
+		populateDupePickups(pickup)
+		local data = EntitySaveStateManager.TryGetEntityData(modReference, pickup)
+		if data and data.__SAVEMANAGER_PICKUP_SAVE.InitSeed and data.__SAVEMANAGER_PICKUP_SAVE.InitSeed ~= ent.InitSeed then
+			data = data.__SAVEMANAGER_PICKUP_SAVE
 			Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.PRE_PICKUP_INITSEED_MORPH, ent.Variant, ent, data.NoRerollSave)
 			if data.InitSeedBackup and ent.InitSeed == data.InitSeedBackup then
 				local initSeed = data.InitSeedBackup
 				data.InitSeedBackup = data.InitSeed
 				data.InitSeed = initSeed
-				SaveManager.Utility.DebugLog("Detected flip in", defaultSaveIndex, "! No action taken.")
+				SaveManager.Utility.DebugLog("Detected flip in Pickup Hash", GetPtrHash(pickup), "! No action taken.")
 				return
 			end
 			data.NoRerollSaveBackup = SaveManager.Utility.DeepCopy(data.NoRerollSave)
 			data.InitSeedBackup = data.InitSeed
 			data.NoRerollSave = {}
 			data.InitSeed = ent.InitSeed
-			SaveManager.Utility.DebugLog("Detected init seed change in", defaultSaveIndex,
+			SaveManager.Utility.DebugLog("Detected init seed change in Pickup Hash", GetPtrHash(pickup),
 				"! NoRerollSave has been reset")
 			Isaac.RunCallbackWithParam(SaveManager.SaveCallbacks.POST_PICKUP_INITSEED_MORPH, ent.Variant, ent, data.NoRerollSave)
 		end
-	end
-	if ent and ent.Type == EntityType.ENTITY_PICKUP then
-		local pickup = ent:ToPickup()
-		---@cast pickup EntityPickup
-		populateDupePickups(pickup)
-		resetNoRerollData(dataCache.game.temp)
-		resetNoRerollData(dataCache.game.room, true)
-		resetNoRerollData(dataCache.gameNoBackup.temp)
-		resetNoRerollData(dataCache.gameNoBackup.room, true)
 	end
 
 	if not ent then
@@ -766,13 +753,13 @@ local function onRoomSwap(_, descriptor1, descriptor2)
 	local index2 = tostring(descriptor2.ListIndex)
 	for _, player in ipairs(PlayerManager.GetPlayers()) do
 		local data = EntitySaveStateManager.TryGetEntityData(modReference, player)
-		if data and data.__SAVEMANAGER_SAVE then
+		if data and data.__SAVEMANAGER_SAVE and data.__SAVEMANAGER_SAVE.room then
 			swapRoomData(data.__SAVEMANAGER_SAVE.room, index1, index2)
 		end
 	end
 	for _, ent in ipairs(Isaac.FindByType(EntityType.ENTITY_FAMILIAR)) do
 		local data = EntitySaveStateManager.TryGetEntityData(modReference, ent)
-		if data and data.__SAVEMANAGER_SAVE then
+		if data and data.__SAVEMANAGER_SAVE and data.__SAVEMANAGER_SAVE.room then
 			swapRoomData(data.__SAVEMANAGER_SAVE.room, index1, index2)
 		end
 	end
@@ -784,8 +771,68 @@ end
 
 --#region Ascent
 
+---@param levelStage LevelStage
+---@param roomDescriptor RoomDescriptor
+---@param key string
 local function saveAscentRoom(_, levelStage, roomDescriptor, key)
+	local stringListIndex = tostring(roomDescriptor.ListIndex)
+	local room_save = dataCache.game.room[stringListIndex]
+	if room_save then
+		dataCache.game.ascent[key] = room_save
+	end
+	for _, player in ipairs(PlayerManager.GetPlayers()) do
+		local data = EntitySaveStateManager.TryGetEntityData(modReference, player)
+		if data
+			and data.__SAVEMANAGER_SAVE
+			and data.__SAVEMANAGER_SAVE.room
+			and data.__SAVEMANAGER_SAVE.room[stringListIndex]
+		then
+			data.__SAVEMANAGER_SAVE.ascent[key] = data.__SAVEMANAGER_SAVE.room
+		end
+	end
+	for _, ent in ipairs(Isaac.FindByType(EntityType.ENTITY_FAMILIAR)) do
+		local data = EntitySaveStateManager.TryGetEntityData(modReference, ent)
+		if data
+			and data.__SAVEMANAGER_SAVE
+			and data.__SAVEMANAGER_SAVE.room
+			and data.__SAVEMANAGER_SAVE.room[stringListIndex]
+		then
+			data.__SAVEMANAGER_SAVE.ascent[key] = data.__SAVEMANAGER_SAVE.room
+		end
+	end
+end
 
+---@param levelStage LevelStage
+---@param roomDescriptor RoomDescriptor
+---@param key string
+local function loadAscentRoom(_, levelStage, roomDescriptor, key)
+	local stringListIndex = tostring(roomDescriptor.ListIndex)
+	if dataCache.game.ascent[key] then
+		dataCache.game.room[stringListIndex] = dataCache.game.ascent[key]
+		dataCache.game.ascent[key] = nil
+	end
+	for _, player in ipairs(PlayerManager.GetPlayers()) do
+		local data = EntitySaveStateManager.TryGetEntityData(modReference, player)
+		if data
+			and data.__SAVEMANAGER_SAVE
+			and data.__SAVEMANAGER_SAVE.ascent
+			and data.__SAVEMANAGER_SAVE.ascent[key]
+		then
+			data.__SAVEMANAGER_SAVE.room[stringListIndex] = data.__SAVEMANAGER_SAVE.ascent[key]
+			data.__SAVEMANAGER_SAVE.ascent[key] = nil
+		end
+	end
+	for _, ent in ipairs(Isaac.FindByType(EntityType.ENTITY_FAMILIAR)) do
+		local data = EntitySaveStateManager.TryGetEntityData(modReference, ent)
+		if data
+			and data.__SAVEMANAGER_SAVE
+			and data.__SAVEMANAGER_SAVE.ascent
+			and data.__SAVEMANAGER_SAVE.ascent[key]
+		then
+			data.__SAVEMANAGER_SAVE.room[stringListIndex] = data.__SAVEMANAGER_SAVE.ascent[key]
+			data.__SAVEMANAGER_SAVE.ascent[key] = nil
+		end
+	end
 end
 
 --#endregion
@@ -810,6 +857,16 @@ local function resetData(saveType)
 		end
 		dataCache.game[saveType] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game[saveType])
 		dataCache.gameNoBackup[saveType] = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.gameNoBackup[saveType])
+
+		if saveType ~= "temp" then
+			for _, ent in ipairs(Isaac.GetRoomEntities()) do
+				local data = EntitySaveStateManager.TryGetEntityData(modReference, ent)
+				if data and data.__SAVEMANAGER_SAVE and data.__SAVEMANAGER_SAVE[saveType] then
+					data.__SAVEMANAGER_SAVE[saveType] = {}
+				end
+			end
+		end
+
 		SaveManager.Utility.DebugLog("reset", saveType, "data")
 		Isaac.RunCallback(typeToCallback[saveType][2])
 	end
@@ -978,6 +1035,7 @@ function SaveManager.Init(mod)
 	modReference:AddCallback(ModCallbacks.MC_POST_SWAP_ROOMS, onRoomSwap)
 
 	modReference:AddCallback(ModCallbacks.MC_POST_BACKWARDS_ROOM_SAVE, saveAscentRoom)
+	modReference:AddCallback(ModCallbacks.MC_POST_BACKWARDS_ROOM_RESTORE, loadAscentRoom)
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod and for unique per-mod callbacks
 	modReference.__SAVEMANAGER_UNIQUE_KEY = ("%s-%s"):format(modReference.Name, Random())
@@ -1104,7 +1162,8 @@ local function getRespectiveSave(ent, noHourglass, saveType, listIndex, allowSou
 				local saveManagerTable = {
 					run = {},
 					floor = {},
-					room = {}
+					room = {},
+					ascent = {}
 				}
 				data.__SAVEMANAGER_SAVE = saveManagerTable
 			end
