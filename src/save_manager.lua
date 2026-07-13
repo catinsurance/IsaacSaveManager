@@ -1927,9 +1927,6 @@ end
 ---@param minimapAPI table @Reference to MinimapAPI.
 ---@param branchVersion table @The version of the branch you are using for MinimapAPI.
 function SaveManager.InitMinimapAPI(minimapAPI, branchVersion)
-	if not SaveManager.Utility.IsDataInitialized() then
-		return
-	end
 	if minimapAPI.BranchVersion == branchVersion then
 		minimapAPI.DisableSaving = true
 		minimapAPIReference = minimapAPI
