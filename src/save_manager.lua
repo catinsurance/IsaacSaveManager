@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = "2.4.1a"
+SaveManager.VERSION = "2.4.1b"
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
@@ -242,7 +242,7 @@ local ANIMAL_EFFECTS = {
 ---@param variant integer
 ---@param subtype integer
 ---@param spawnerType EntityType | integer
----@param isClear boolean
+---@param isClear? boolean
 ---@return boolean
 local function should_save_effect(variant, subtype, spawnerType, isClear)
 	if EFFECT_WHITELIST[variant] then
@@ -274,7 +274,7 @@ end
 ---@param variant integer
 ---@param subtype integer
 ---@param spawnerType EntityType | integer
----@param isClear boolean
+---@param isClear? boolean
 ---@return boolean
 local function should_save_type(type, variant, subtype, spawnerType, isClear)
 	if type == EntityType.ENTITY_SHOPKEEPER then
@@ -298,7 +298,7 @@ local function should_save_type(type, variant, subtype, spawnerType, isClear)
 	end
 
 	if type == EntityType.ENTITY_GIDEON then
-		return isClear and subtype == 1
+		return isClear and subtype == 1 or false
 	end
 
 	if type == EntityType.ENTITY_GENERIC_PROP then
@@ -312,7 +312,7 @@ end
 ---@param variant integer
 ---@param subtype integer
 ---@param spawnerType EntityType | integer
----@param isClear boolean
+---@param isClear? boolean
 function SaveManager.Utility.ShouldSaveType(entType, variant, subtype, spawnerType, isClear)
 	if entType == EntityType.ENTITY_PICKUP then
 		return not PICKUP_BLACKLIST[variant]
@@ -668,7 +668,7 @@ end
 ---@param saveType DataDuration
 ---@return boolean, string?
 function SaveManager.Utility.IsEntitySaveAllowed(ent, saveType)
-	if not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType, game:GetFrameCount() == 0 or game:GetRoom():IsClear()) then
+	if not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType) then
 		return false, SaveManager.Utility.ErrorMessages.INVALID_ENTITY:format(ent.Type, ent.Variant, ent.SubType)
 	end
 	local entType = ent.Type
@@ -1487,9 +1487,8 @@ end
 local function tryRemoveLeftoverData()
 	SaveManager.Utility.DebugLog("leftover ent data check")
 	local availableIndexes = {}
-	local clearedRoom = game:GetRoom():IsClear()
 	for _, ent in ipairs(Isaac.GetRoomEntities()) do
-		if SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType, clearedRoom) then
+		if SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType) then
 			availableIndexes[SaveManager.Utility.GetSaveIndex(ent)] = true
 		end
 	end
@@ -1614,7 +1613,7 @@ end
 ---@param ent Entity
 local function postEntityRemove(_, ent)
 	if not dataCache.game
-		or not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType, game:GetRoom():IsClear())
+		or not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType)
 	then
 		return
 	end
