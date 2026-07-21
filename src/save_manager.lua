@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = "2.4.1b"
+SaveManager.VERSION = "2.4.1c"
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
@@ -71,8 +71,8 @@ SaveManager.Utility.ErrorMessages = {
 	COPY_ERROR =
 	"An error was made when copying from cached data to what would be saved! This could be due to a circular reference.",
 	INVALID_ENTITY = "Error using entity \"%s.%s.%s\": The save manager cannot support non-persistent entities!",
-	INVALID_ENTITY_WITH_SAVE = "An error was made using entity \"%s.%s.%s\": This entity does not support this save data as it does not persist between floors or move between rooms.",
-	INVALID_DEFAULT_WITH_SAVE = "An error was made using entity type \"%s\": This entity does not support this save data as it does not persist between floors or move between rooms."
+	INVALID_ENTITY_WITH_SAVE = "An error was made using entity \"%s.%s.%s\": This entity is not compatible with the current save type. Please use room or temp saves instead.",
+	INVALID_DEFAULT_WITH_SAVE = "An error was made using entity type \"%s\": This entity is not compatible with the current save type. Please use room or temp saves instead."
 }
 SaveManager.Utility.JsonIncompatibilityType = {
 	SPARSE_ARRAY = "Sparse arrays, or arrays with gaps between indexes, will fill gaps with null when encoded. Convert them into strings to avoid this.",
@@ -1981,9 +1981,11 @@ local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, saveTyp
 		---@diagnostic disable-next-line: missing-return-value
 		return
 	end
-	if ent then
+	if ent and type(ent) == "userdata" then
 		---@diagnostic disable-next-line: param-type-mismatch
-		if (type(ent) == "userdata" and not SaveManager.Utility.IsEntitySaveAllowed(ent, saveType)) then
+		local isAllowed, message = SaveManager.Utility.IsEntitySaveAllowed(ent, saveType)
+		if not isAllowed then
+				SaveManager.Utility.SendError(message)
 			---@diagnostic disable-next-line: missing-return-value
 			return
 		--Technically it doesn't make sense to allow "grid saves" for run and floor saves but they're nothing more than arbitrary integers.
