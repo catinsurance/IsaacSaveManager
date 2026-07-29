@@ -3,7 +3,7 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = "2.4.1c"
+SaveManager.VERSION = "2.4.2"
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
@@ -1696,7 +1696,6 @@ local function postNewLevel()
 	resetData("floor")
 	checkForMyosotis()
 	checkForAscentValidRooms()
-	SaveManager.Save()
 end
 
 local function postUpdate()
@@ -1848,6 +1847,10 @@ function SaveManager.Init(mod)
 		postNewRoom)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_LEVEL, SaveManager.Utility.CallbackPriority.EARLY,
 		postNewLevel)
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_LEVEL, SaveManager.Utility.CallbackPriority.LATE,
+		function()
+			SaveManager.Save()
+		end)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, SaveManager.Utility.CallbackPriority.LATE,
 		preGameExit)
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE,
