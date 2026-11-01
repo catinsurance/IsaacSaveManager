@@ -44,6 +44,9 @@ local tLazInitPlayer
 local tLazInitSeeds
 local dupeTaggedPickups = {}
 local allowedAscentRooms = {}
+local setEntityRemoveCallback
+local setEffectInitCallback
+local hasEntityLoadListener = false
 
 local isLazB = {
 	[PlayerType.PLAYER_LAZARUS_B] = true,
@@ -765,6 +768,9 @@ local function addDefaultData(saveKey, saveType, data, noHourglass)
 
 	SaveManager.Utility.PatchSaveFile(dataTable, data)
 	SaveManager.Utility.DebugLog(saveKey, saveType)
+	if saveKey ~= SaveManager.DefaultSaveKeys.GLOBAL and setEntityRemoveCallback then
+		setEntityRemoveCallback()
+	end
 end
 
 ---Adds data that will be automatically added when the run data is first initialized. Lasts for the duration of the entire run
@@ -1283,6 +1289,66 @@ end
 
 --#region game start/entity init
 
+---@param key any
+---@return boolean
+local function isEntitySaveKey(key)
+	if type(key) ~= "string" then return false end
+	return key:find("^PLAYER_") ~= nil
+		or key:find("^FAMILIAR_") ~= nil
+		or key:find("^PICKUP_") ~= nil
+		or key:find("^SLOT_") ~= nil
+		or key:find("^BOMB_") ~= nil
+		or key:find("^NPC_") ~= nil
+end
+
+local function scanLoadedEntityData()
+	local hasEntity = false
+	local hasEffect = false
+
+	local function scanKeys(tab)
+		if not tab then return end
+		for k in pairs(tab) do
+			if type(k) == "string" then
+				if isEntitySaveKey(k) then
+					hasEntity = true
+				elseif k:find("^EFFECT_") then
+					hasEntity = true
+					hasEffect = true
+				end
+			end
+		end
+	end
+
+	for _, saveName in ipairs({ "game", "gameNoBackup" }) do
+		local cache = dataCache[saveName]
+		if cache then
+			scanKeys(cache.run)
+			scanKeys(cache.floor)
+			scanKeys(cache.temp)
+
+			local roomTab = cache.room
+			if roomTab then
+				for _, roomData in pairs(roomTab) do
+					scanKeys(roomData)
+				end
+			end
+
+			if (cache.pickupRoom and next(cache.pickupRoom) ~= nil)
+				or (cache.movingBox and next(cache.movingBox) ~= nil)
+			then
+				hasEntity = true
+			end
+		end
+	end
+
+	if hasEntity and setEntityRemoveCallback then
+		setEntityRemoveCallback()
+	end
+	if hasEffect and setEffectInitCallback then
+		setEffectInitCallback()
+	end
+end
+
 local function onGameLoad()
 	if game:GetFrameCount() == 0 then
 		skipFloorReset = true
@@ -1292,10 +1358,19 @@ local function onGameLoad()
 	loadedData = true
 	inRunButNotLoaded = false
 	dontSaveModData = false
+	scanLoadedEntityData()
 end
 
 ---@param ent? Entity
 local function onEntityInit(_, ent)
+	if not hasEntityLoadListener
+		and ent
+		and ent.Type ~= EntityType.ENTITY_PLAYER
+		and not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType)
+	then
+		return
+	end
+
 	local newGame = game:GetFrameCount() == 0 and not ent
 	local player = ent and ent:ToPlayer()
 	local initLaz = false
@@ -1612,8 +1687,14 @@ end
 
 ---@param ent Entity
 local function postEntityRemove(_, ent)
-	if not dataCache.game
-		or not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType)
+	if not dataCache.game then return end
+
+	local entType = ent.Type
+	if entType == EntityType.ENTITY_TEAR
+		or entType == EntityType.ENTITY_PROJECTILE
+		or entType == EntityType.ENTITY_LASER
+		or entType == EntityType.ENTITY_KNIFE
+		or not SaveManager.Utility.ShouldSaveType(entType, ent.Variant, ent.SubType, ent.SpawnerType)
 	then
 		return
 	end
@@ -1652,6 +1733,21 @@ local function postEntityRemove(_, ent)
 		removeSaveData(dataCache.game, altSaveIndex)
 		removeSaveData(dataCache.gameNoBackup, altSaveIndex)
 	end
+end
+
+local effectInitRegistered = false
+local entityRemoveRegistered = false
+
+setEffectInitCallback = function()
+	if not modReference or effectInitRegistered then return end
+	effectInitRegistered = true
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_EFFECT_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
+end
+
+setEntityRemoveCallback = function()
+	if not modReference or entityRemoveRegistered then return end
+	entityRemoveRegistered = true
+	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE, postEntityRemove)
 end
 
 --#endregion
@@ -1763,8 +1859,7 @@ function SaveManager.Init(mod)
 		ModCallbacks.MC_FAMILIAR_INIT,
 		ModCallbacks.MC_POST_PICKUP_INIT,
 		ModCallbacks.MC_POST_BOMB_INIT,
-		ModCallbacks.MC_POST_NPC_INIT,
-		ModCallbacks.MC_POST_EFFECT_INIT
+		ModCallbacks.MC_POST_NPC_INIT
 	}
 
 	for _, initCallback in ipairs(initCallbacks) do
@@ -1853,8 +1948,31 @@ function SaveManager.Init(mod)
 		end)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, SaveManager.Utility.CallbackPriority.LATE,
 		preGameExit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE,
-		postEntityRemove)
+
+	local function checkEntityDataLoadListener(callbackId, param)
+		if callbackId == SaveManager.SaveCallbacks.POST_ENTITY_DATA_LOAD
+			or tostring(callbackId):find("POST_ENTITY_DATA_LOAD", 1, true)
+		then
+			hasEntityLoadListener = true
+			if (not param or param == EntityType.ENTITY_EFFECT) and setEffectInitCallback then
+				setEffectInitCallback()
+			end
+		end
+	end
+
+	local origModAddCallback = modReference.AddCallback
+	modReference.AddCallback = function(self, callbackId, fn, param)
+		checkEntityDataLoadListener(callbackId, param)
+		return origModAddCallback(self, callbackId, fn, param)
+	end
+
+	local origModAddPriorityCallback = modReference.AddPriorityCallback
+	if origModAddPriorityCallback then
+		modReference.AddPriorityCallback = function(self, callbackId, priority, fn, param)
+			checkEntityDataLoadListener(callbackId, param)
+			return origModAddPriorityCallback(self, callbackId, priority, fn, param)
+		end
+	end
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
 		function()
 			movingBoxCheck = true
@@ -2041,6 +2159,15 @@ local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, saveTyp
 		SaveManager.Utility.DebugLog("Created new", saveType, "data for", saveIndex)
 	end
 	data = saveTable[saveIndex]
+
+	if data ~= nil and ent and type(ent) == "userdata" then
+		if setEntityRemoveCallback then
+			setEntityRemoveCallback()
+		end
+		if ent.Type == EntityType.ENTITY_EFFECT and setEffectInitCallback then
+			setEffectInitCallback()
+		end
+	end
 
 	return data
 end
