@@ -219,11 +219,11 @@ local BOMB_BLACKLIST = {
 
 ---@type {[EffectVariant]: boolean}
 local EFFECT_WHITELIST = {
-	EffectVariant.ISAACS_CARPET,
-	EffectVariant.DICE_FLOOR,
-	EffectVariant.HEAVEN_LIGHT_DOOR,
-	EffectVariant.DIRT_PATCH,
-	EffectVariant.SPAWNER
+	[EffectVariant.ISAACS_CARPET] = true,
+	[EffectVariant.DICE_FLOOR] = true,
+	[EffectVariant.HEAVEN_LIGHT_DOOR] = true,
+	[EffectVariant.DIRT_PATCH] = true,
+	[EffectVariant.SPAWNER] = true
 }
 
 ---@type {[EffectVariant]: boolean}
@@ -408,21 +408,23 @@ function SaveManager.Utility.IsDefaultSaveKey(key)
 	return false
 end
 
+---@type {[EntityType]: string}
+local DEFAULT_SAVE_KEY_BY_TYPE = {
+	[EntityType.ENTITY_PLAYER] = "__DEFAULT_PLAYER",
+	[EntityType.ENTITY_FAMILIAR] = "__DEFAULT_FAMILIAR",
+	[EntityType.ENTITY_PICKUP] = "__DEFAULT_PICKUP",
+	[EntityType.ENTITY_SLOT] = "__DEFAULT_SLOT",
+	[EntityType.ENTITY_BOMB] = "__DEFAULT_BOMB"
+}
+
 ---Gets the default save key matching with the entity's type.
 ---@param ent? Entity | integer
 function SaveManager.Utility.GetDefaultSaveKey(ent)
 	if type(ent) == "number" then return "" end
-	local typeToName = {
-		[EntityType.ENTITY_PLAYER] = "__DEFAULT_PLAYER",
-		[EntityType.ENTITY_FAMILIAR] = "__DEFAULT_FAMILIAR",
-		[EntityType.ENTITY_PICKUP] = "__DEFAULT_PICKUP",
-		[EntityType.ENTITY_SLOT] = "__DEFAULT_SLOT",
-		[EntityType.ENTITY_BOMB] = "__DEFAULT_BOMB"
-	}
 	local key
 	if ent then
 		if getmetatable(ent).__type:find("Entity") then
-			key = typeToName[ent.Type]
+			key = DEFAULT_SAVE_KEY_BY_TYPE[ent.Type]
 		end
 	else
 		key = "__DEFAULT_GLOBAL"
@@ -430,24 +432,26 @@ function SaveManager.Utility.GetDefaultSaveKey(ent)
 	return key
 end
 
+---@type {[EntityType]: string}
+local SAVE_INDEX_PREFIX_BY_TYPE = {
+	[EntityType.ENTITY_PLAYER] = "PLAYER_",
+	[EntityType.ENTITY_FAMILIAR] = "FAMILIAR_",
+	[EntityType.ENTITY_BOMB] = "BOMB_",
+	[EntityType.ENTITY_PICKUP] = "PICKUP_",
+	[EntityType.ENTITY_SLOT] = "SLOT_",
+	[EntityType.ENTITY_EFFECT] = "EFFECT_"
+}
+
 ---Gets a unique string as an identifier for the entity in the save data.
 ---@param ent? Entity | integer
 ---@param allowSoulSave? boolean
 function SaveManager.Utility.GetSaveIndex(ent, allowSoulSave)
-	local typeToName = {
-		[EntityType.ENTITY_PLAYER] = "PLAYER_",
-		[EntityType.ENTITY_FAMILIAR] = "FAMILIAR_",
-		[EntityType.ENTITY_BOMB] = "BOMB_",
-		[EntityType.ENTITY_PICKUP] = "PICKUP_",
-		[EntityType.ENTITY_SLOT] = "SLOT_",
-		[EntityType.ENTITY_EFFECT] = "EFFECT_"
-	}
 	local name
 	local identifier
 	if ent and type(ent) == "userdata" then
 		---@cast ent Entity
-		if typeToName[ent.Type] then
-			name = typeToName[ent.Type]
+		if SAVE_INDEX_PREFIX_BY_TYPE[ent.Type] then
+			name = SAVE_INDEX_PREFIX_BY_TYPE[ent.Type]
 		else
 			name = "NPC_"
 		end
@@ -727,6 +731,15 @@ end
 
 --#region default data
 
+---@type {[string]: EntityType}
+local DEFAULT_KEY_TO_TYPE = {
+	[SaveManager.DefaultSaveKeys.PLAYER] = EntityType.ENTITY_PLAYER,
+	[SaveManager.DefaultSaveKeys.FAMILIAR] = EntityType.ENTITY_FAMILIAR,
+	[SaveManager.DefaultSaveKeys.PICKUP] = EntityType.ENTITY_PICKUP,
+	[SaveManager.DefaultSaveKeys.SLOT] = EntityType.ENTITY_SLOT,
+	[SaveManager.DefaultSaveKeys.BOMB] = EntityType.ENTITY_BOMB
+}
+
 ---@param saveKey string
 ---@param saveType DataDuration
 ---@param data table
@@ -735,14 +748,7 @@ local function addDefaultData(saveKey, saveType, data, noHourglass)
 	if not SaveManager.Utility.IsDefaultSaveKey(saveKey) then
 		return
 	end
-	local keyToType = {
-		[SaveManager.DefaultSaveKeys.PLAYER] = EntityType.ENTITY_PLAYER,
-		[SaveManager.DefaultSaveKeys.FAMILIAR] = EntityType.ENTITY_FAMILIAR,
-		[SaveManager.DefaultSaveKeys.PICKUP] = EntityType.ENTITY_PICKUP,
-		[SaveManager.DefaultSaveKeys.SLOT] = EntityType.ENTITY_SLOT,
-		[SaveManager.DefaultSaveKeys.BOMB] = EntityType.ENTITY_BOMB
-	}
-	local entType = saveKey[keyToType]
+	local entType = DEFAULT_KEY_TO_TYPE[saveKey]
 	if saveKey ~= SaveManager.DefaultSaveKeys.GLOBAL
 		and entType
 		and entType ~= EntityType.ENTITY_PLAYER
@@ -1374,7 +1380,6 @@ local function onEntityInit(_, ent)
 							NoRerollSave = SaveManager.Utility.PatchSaveFile(
 								targetTable.NoRerollSave and targetTable.NoRerollSave[saveIndex] or {}, v)
 						}
-						target[saveIndex] = pickupData
 						newData = pickupData
 					else
 						newData = SaveManager.Utility.PatchSaveFile(targetTable[saveIndex] or {}, v)
