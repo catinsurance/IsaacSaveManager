@@ -1323,6 +1323,11 @@ end
 
 ---@param ent? Entity
 local function onEntityInit(_, ent)
+	if ent and ent.Type ~= EntityType.ENTITY_PLAYER
+		and not SaveManager.Utility.ShouldSaveType(ent.Type, ent.Variant, ent.SubType, ent.SpawnerType)
+	then
+		return
+	end
 	local newGame = game:GetFrameCount() == 0 and not ent
 	local player = ent and ent:ToPlayer()
 	local initLaz = false
