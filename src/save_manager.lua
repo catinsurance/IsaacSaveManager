@@ -3,14 +3,17 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = "2.4.2"
+SaveManager.VERSION = "2.4.3"
 SaveManager.Utility = {}
 
 SaveManager.Debug = false
 
-SaveManager.AutoCreateRoomSaves = true
+local hasEntitySaves = false
+local hasRoomSaves = false
+local hasRoomEntSaves = false
 
 local mFloor = math.floor
+local mHuge = math.huge
 
 -- Used in the DEFAULT_SAVE table as a key with the value being the default save data for a player in this save type.
 
@@ -72,7 +75,10 @@ SaveManager.Utility.ErrorMessages = {
 	"An error was made when copying from cached data to what would be saved! This could be due to a circular reference.",
 	INVALID_ENTITY = "Error using entity \"%s.%s.%s\": The save manager cannot support non-persistent entities!",
 	INVALID_ENTITY_WITH_SAVE = "An error was made using entity \"%s.%s.%s\": This entity is not compatible with the current save type. Please use room or temp saves instead.",
-	INVALID_DEFAULT_WITH_SAVE = "An error was made using entity type \"%s\": This entity is not compatible with the current save type. Please use room or temp saves instead."
+	INVALID_DEFAULT_WITH_SAVE = "An error was made using entity type \"%s\": This entity is not compatible with the current save type. Please use room or temp saves instead.",
+	ENTITY_SAVES_DISABLED = "Entity saves are disabled! Please pass 'true' as the second argument in SaveManager.Init",
+	ROOM_SAVES_DISABLED = "Room saves are disabled! Please pass 'true' as the third argument in SaveManager.Init",
+	ROOM_ENTITY_SAVES_DISABLED = "Saves for entities restricted to rooms are disabled! Please pass 'true' as the second and third argument in SaveManager.Init"
 }
 SaveManager.Utility.JsonIncompatibilityType = {
 	SPARSE_ARRAY = "Sparse arrays, or arrays with gaps between indexes, will fill gaps with null when encoded. Convert them into strings to avoid this.",
@@ -610,7 +616,7 @@ function SaveManager.Utility.ValidateForJson(tab)
 				local valType = type(value) == "userdata" and getmetatable(value).__type or type(value)
 				return SaveManager.Utility.ValidityState.INVALID,
 					SaveManager.Utility.JsonIncompatibilityType.INVALID_KEY_TYPE:format(index, tostring(value), valType)
-			elseif value == math.huge or value == -math.huge or value ~= value then
+			elseif value == mHuge or value == -mHuge or value ~= value then
 				return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.NAN_VALUE
 			end
 		end
@@ -618,7 +624,7 @@ function SaveManager.Utility.ValidateForJson(tab)
 		-- check for NaN and infinite values
 		-- http://lua-users.org/wiki/InfAndNanComparisons
 		if type(value) == "number" then
-			if value == math.huge or value == -math.huge or value ~= value then
+			if value == mHuge or value == -mHuge or value ~= value then
 				return SaveManager.Utility.ValidityState.INVALID, SaveManager.Utility.JsonIncompatibilityType.NAN_VALUE
 			end
 		elseif type(value) == "table" then
@@ -676,6 +682,21 @@ function SaveManager.Utility.IsEntitySaveAllowed(ent, saveType)
 		return false, SaveManager.Utility.ErrorMessages.INVALID_ENTITY:format(ent.Type, ent.Variant, ent.SubType)
 	end
 	local entType = ent.Type
+	if (
+			entType == EntityType.ENTITY_PLAYER
+			or entType == EntityType.ENTITY_FAMILIAR
+		)
+		and not hasEntitySaves
+	then
+		return false, SaveManager.Utility.ErrorMessages.ENTITY_SAVES_DISABLED
+	end
+	if SAVE_INDEX_PREFIX_BY_TYPE[entType]
+		and entType ~= EntityType.ENTITY_PLAYER
+		and entType ~= EntityType.ENTITY_FAMILIAR
+		and not hasRoomEntSaves
+	then
+		return false, SaveManager.Utility.ErrorMessages.ROOM_ENTITY_SAVES_DISABLED
+	end
 	if entType ~= EntityType.ENTITY_PLAYER
 		and entType ~= EntityType.ENTITY_FAMILIAR
 		and (entType < 10 or entType == EntityType.ENTITY_EFFECT)
@@ -1590,10 +1611,12 @@ local function preGameExit(_, shouldSave)
 	SaveManager.Utility.DebugLog("pre game exit")
 
 	if shouldSave then
-		for _, pickup in ipairs(Isaac.FindByType(EntityType.ENTITY_PICKUP)) do
-			if type(pickup) ~= "number" then
-				---@cast pickup EntityPickup
-				storePickupData(pickup)
+		if hasEntitySaves then
+			for _, pickup in ipairs(Isaac.FindByType(EntityType.ENTITY_PICKUP)) do
+				if type(pickup) ~= "number" then
+					---@cast pickup EntityPickup
+					storePickupData(pickup)
+				end
 			end
 		end
 	else
@@ -1673,15 +1696,19 @@ end
 
 local function postNewRoom()
 	SaveManager.Utility.DebugLog("new room")
-	if not REPENTOGON then
+	if not REPENTOGON and hasEntitySaves then
 		postSlotInitNoRGON()
 	end
 	local currentRoomDesc = game:GetLevel():GetCurrentRoomDesc()
-	storeAndPopulateAscent()
-	currentListIndex = currentRoomDesc.ListIndex
+	if hasRoomSaves then
+		storeAndPopulateAscent()
+		currentListIndex = currentRoomDesc.ListIndex
+	end
 	resetData("temp")
-	tryRemoveLeftoverData()
-	if not SaveManager.AutoCreateRoomSaves then return end
+	if hasEntitySaves then
+		tryRemoveLeftoverData()
+	end
+	if not hasRoomSaves then return end
 	local roomSaveData = SaveManager.GetRoomSave(nil, false, currentListIndex)
 	--Always keep track of for Curse of the Maze
 	roomSaveData.__SAVEMANAGER_SPAWN_SEED = currentRoomDesc.SpawnSeed
@@ -1699,8 +1726,12 @@ local function postNewLevel()
 	SaveManager.Utility.DebugLog("new level")
 	resetData("room")
 	resetData("floor")
-	checkForMyosotis()
-	checkForAscentValidRooms()
+	if hasEntitySaves then
+		checkForMyosotis()
+	end
+	if hasRoomSaves then
+		checkForAscentValidRooms()
+	end
 end
 
 local function postUpdate()
@@ -1748,8 +1779,20 @@ end
 
 -- Initializes the save manager.
 ---@param mod table @The reference to your mod. This is the table that is returned when you call `RegisterMod`.
-function SaveManager.Init(mod)
+---@param entitySaves? boolean @Enables player and familiar saves
+---@param roomSaves? boolean @Enables room-related saves and related code. If `entitySaves` is enabled, also enables all other entity saves (slots, pickups, etc)
+function SaveManager.Init(mod, entitySaves, roomSaves)
 	modReference = mod
+
+	if entitySaves and roomSaves then
+		hasRoomEntSaves = true
+	end
+	if entitySaves then
+		hasEntitySaves = true
+	end
+	if roomSaves then
+		hasRoomSaves = true
+	end
 
 	-- Priority callbacks put in place to load data early and save data late.
 
@@ -1763,24 +1806,30 @@ function SaveManager.Init(mod)
 		end
 	)
 
-	local initCallbacks = {
-		ModCallbacks.MC_POST_PLAYER_INIT,
-		ModCallbacks.MC_FAMILIAR_INIT,
-		ModCallbacks.MC_POST_PICKUP_INIT,
-		ModCallbacks.MC_POST_BOMB_INIT,
-		ModCallbacks.MC_POST_NPC_INIT,
-		ModCallbacks.MC_POST_EFFECT_INIT
-	}
+	if hasEntitySaves then
+		local initCallbacks = {
+			ModCallbacks.MC_POST_PLAYER_INIT,
+			ModCallbacks.MC_FAMILIAR_INIT,
+			ModCallbacks.MC_POST_PICKUP_INIT,
+			ModCallbacks.MC_POST_BOMB_INIT,
+			ModCallbacks.MC_POST_NPC_INIT,
+			ModCallbacks.MC_POST_EFFECT_INIT
+		}
 
-	for _, initCallback in ipairs(initCallbacks) do
-		modReference:AddPriorityCallback(initCallback, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
+		for i, initCallback in ipairs(initCallbacks) do
+			if i <= 2 or hasRoomEntSaves then --Players and familiars always. Only pickup/bomb/npc/effect if both saves enabled
+				modReference:AddPriorityCallback(initCallback, SaveManager.Utility.CallbackPriority.IMPORTANT, onEntityInit)
+			end
+		end
 	end
 
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_UPDATE, SaveManager.Utility.CallbackPriority.EARLY, postUpdate)
 
 	if REPENTOGON then
-		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
-			onEntityInit)
+		if hasRoomEntSaves then
+			modReference:AddPriorityCallback(ModCallbacks.MC_POST_SLOT_INIT, SaveManager.Utility.CallbackPriority.IMPORTANT,
+				onEntityInit)
+		end
 		modReference:AddPriorityCallback(ModCallbacks.MC_POST_SAVESLOT_LOAD,
 			SaveManager.Utility.CallbackPriority.IMPORTANT, postSaveSlotLoad)
 		modReference:AddPriorityCallback(ModCallbacks.MC_MENU_INPUT_ACTION,
@@ -1858,53 +1907,58 @@ function SaveManager.Init(mod)
 		end)
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_GAME_EXIT, SaveManager.Utility.CallbackPriority.LATE,
 		preGameExit)
-	modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE,
-		postEntityRemove)
-	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
-		function()
-			movingBoxCheck = true
-		end,
-		CollectibleType.COLLECTIBLE_MOVING_BOX
-	)
 
-	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
-		function()
-			movingBoxCheck = false
-		end,
-		CollectibleType.COLLECTIBLE_MOVING_BOX
-	)
+	if hasRoomEntSaves then
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_ENTITY_REMOVE, SaveManager.Utility.CallbackPriority.LATE,
+			postEntityRemove)
+		modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
+			function()
+				movingBoxCheck = true
+			end,
+			CollectibleType.COLLECTIBLE_MOVING_BOX
+		)
 
-	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
-		function()
-			SaveManager.Save()
-		end,
-		CollectibleType.COLLECTIBLE_GENESIS
-	)
+		modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
+			function()
+				movingBoxCheck = false
+			end,
+			CollectibleType.COLLECTIBLE_MOVING_BOX
+		)
 
-	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
-		function (_, _, _, player)
-			if isLazB[player:GetPlayerType()] then
+		modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
+			function (_, _, _, player)
+				if isLazB[player:GetPlayerType()] then
+					retainFamiliarSaveOnFlip = true
+				end
+			end,
+			CollectibleType.COLLECTIBLE_FLIP
+		)
+
+		modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
+			function (_, _, _, player)
+				if isLazB[player:GetPlayerType()] then
+					retainFamiliarSaveOnFlip = false
+				end
+			end,
+			CollectibleType.COLLECTIBLE_FLIP
+		)
+	end
+	if hasEntitySaves then
+
+		modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
+			function()
+				SaveManager.Save()
+			end,
+			CollectibleType.COLLECTIBLE_GENESIS
+		)
+
+		modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
+			function ()
 				retainFamiliarSaveOnFlip = true
-			end
-		end,
-		CollectibleType.COLLECTIBLE_FLIP
-	)
-
-	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.EARLY,
-		function (_, _, _, player)
-			if isLazB[player:GetPlayerType()] then
-				retainFamiliarSaveOnFlip = false
-			end
-		end,
-		CollectibleType.COLLECTIBLE_FLIP
-	)
-
-	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
-		function ()
-			retainFamiliarSaveOnFlip = true
-		end,
-		CollectibleType.COLLECTIBLE_ESAU_JR
-	)
+			end,
+			CollectibleType.COLLECTIBLE_ESAU_JR
+		)
+	end
 
 	-- used to detect if an unloaded mod is this mod for when saving for luamod and for unique per-mod callbacks
 	modReference.__SAVEMANAGER_UNIQUE_KEY = ("%s-%s"):format(Random(), Random())
@@ -2003,6 +2057,11 @@ local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, saveTyp
 			return ]]
 		end
 	end
+	if saveType == "room" and not hasRoomSaves then
+		SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.ROOM_SAVES_DISABLED)
+		---@diagnostic disable-next-line: missing-return-value
+		return
+	end
 	noHourglass = noHourglass or false
 
 	local getAltSave = allowSoulSave
@@ -2017,9 +2076,9 @@ local function getRespectiveSave(ent, noHourglass, initDataIfNotPresent, saveTyp
 	local saveTable = noHourglass and saveTableNoBackup or saveTableBackup
 
 	if not saveTable then return saveTable end
-	local numberListIndex = listIndex or tonumber(SaveManager.Utility.GetListIndex())
-	local stringListIndex = tostring(numberListIndex)
 	if saveType == "room" then
+		local numberListIndex = listIndex or tonumber(SaveManager.Utility.GetListIndex())
+		local stringListIndex = tostring(numberListIndex)
 		if not saveTable[stringListIndex] then
 			SaveManager.Utility.DebugLog("Created index", stringListIndex)
 			saveTable[stringListIndex] = {}
