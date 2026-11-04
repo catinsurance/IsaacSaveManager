@@ -1,6 +1,6 @@
 TestMod = RegisterMod("Yor'ue Mother", 1)
 TestMod.SaveManager = include("src_test.save_manager")
-TestMod.SaveManager.Init(TestMod)
+TestMod.SaveManager.Init(TestMod, true, true)
 
 --Tests room-specific data for players, pickups, and slot machines
 
